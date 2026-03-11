@@ -139,21 +139,13 @@ def filter_and_process(
         pl.col("MW_QUALITY_FLAG").cast(pl.Int32, strict=False),
     ])
 
-    # Filter to the 24-hour NEM market day window: 04:00 UTC → 04:00 UTC D+1
-    day_start = datetime.combine(target_date, dtime(_DAY_START_HOUR, 0, 0))
-    day_end   = datetime.combine(target_date + timedelta(days=1), dtime(_DAY_START_HOUR, 0, 0))
-    df = df.filter(
-        (pl.col("MEASUREMENT_DATETIME") >= day_start) &
-        (pl.col("MEASUREMENT_DATETIME") < day_end)
+    # Deduplicate on MEASUREMENT_DATETIME (boundary rows may appear in both
+    # the D and D+1 files) then sort chronologically.  No time-boundary
+    # filter is applied — the raw CSV contents define the coverage window.
+    return (
+        df.unique(subset=["MEASUREMENT_DATETIME"], keep="first")
+          .sort("MEASUREMENT_DATETIME")
     )
-
-    if df.is_empty():
-        raise DataProcessingError(
-            f"No data found for DUID '{duid}' in the 04:00–04:00 UTC window for "
-            f"this date. The unit may not have been operational on this date."
-        )
-
-    return df.sort("MEASUREMENT_DATETIME")
 
 
 def compute_summary(df: pl.DataFrame) -> dict:
