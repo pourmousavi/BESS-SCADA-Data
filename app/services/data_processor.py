@@ -60,7 +60,7 @@ def _parse_aemo_csv(csv_bytes: bytes) -> pl.DataFrame:
             padded.append(row + [""] * (n_cols - len(row)))
 
     csv_content = ",".join(header) + "\n" + "\n".join(",".join(r) for r in padded)
-    df = pl.read_csv(io.StringIO(csv_content), infer_schema_length=1000)
+    df = pl.read_csv(io.StringIO(csv_content), infer_schema_length=None)
     return df
 
 
