@@ -144,8 +144,13 @@ async def _find_file_in(
     # 1. Exact match (e.g. Current dir or lucky archive hit)
     exact = [f for f in filenames if date_str in f]
     if exact:
-        logger.info("Exact match at %s: %s", url, exact[0])
-        return exact[0], url
+        # From 11 Jan 2026 AEMO publishes FPPMW (metered) files alongside older
+        # FPP files in the same directory.  Always prefer FPPMW over FPP so we
+        # get the correct metered-data file, not a related forecast/other file.
+        fppmw_exact = [f for f in exact if "FPPMW" in f]
+        chosen = fppmw_exact[0] if fppmw_exact else exact[0]
+        logger.info("Exact match at %s: %s", url, chosen)
+        return chosen, url
 
     # 2. Archive bundle: largest start-date <= target_date.
     #    ONLY consider PUBLIC_NEXT_DAY_FPP_*.zip files (multi-day bundles).
