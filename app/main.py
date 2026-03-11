@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,6 +9,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.routers.api import router as api_router
 from app.services.analytics import init_db
+
+logging.basicConfig(level=logging.INFO)
 
 
 @asynccontextmanager
