@@ -140,9 +140,14 @@ async def _find_file_in(
         logger.info("Exact match at %s: %s", url, exact[0])
         return exact[0], url
 
-    # 2. Archive bundle: largest start-date <= target_date
+    # 2. Archive bundle: largest start-date <= target_date.
+    #    ONLY consider PUBLIC_NEXT_DAY_FPP_*.zip files (multi-day bundles).
+    #    PUBLIC_NEXT_DAY_FPPMW_*.zip files are individual daily files — they
+    #    only contain data for their own date, so they must not be used as
+    #    a bundle for a different date.
+    fpp_bundles = [f for f in filenames if "FPPMW" not in f]
     candidates: list[tuple[date, str]] = []
-    for f in filenames:
+    for f in fpp_bundles:
         zip_date = _extract_zip_date(f)
         if zip_date is not None and zip_date <= target_date:
             candidates.append((zip_date, f))
@@ -167,13 +172,11 @@ async def _find_file(
     Returns (filename, base_url_of_that_file).
     Raises AEMOFetchError if nothing is found.
     """
-    # Always try Current first, then Archive, regardless of age.
-    # This handles publication lag and UTC/AEST edge cases.
-    urls_to_try: list[str] = []
-    if base_url == AEMO_CURRENT_URL:
-        urls_to_try = [AEMO_CURRENT_URL, AEMO_ARCHIVE_URL]
-    else:
-        urls_to_try = [AEMO_ARCHIVE_URL, AEMO_CURRENT_URL]
+    # Current directory keeps a long history (observed: 180+ files going back
+    # months), so always try it first — it has single-file exact matches which
+    # are faster and more reliable than hunting through archive bundles.
+    # Fall back to Archive for older dates not yet deleted from Current.
+    urls_to_try = [AEMO_CURRENT_URL, AEMO_ARCHIVE_URL]
 
     last_filenames: list[str] = []
     for url in urls_to_try:
