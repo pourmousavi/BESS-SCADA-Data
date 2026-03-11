@@ -84,11 +84,12 @@ def _parse_xlsx(xlsx_bytes: bytes) -> dict[str, list[dict]]:
     ws = wb[SHEET_NAME]
     rows = list(ws.iter_rows(values_only=True))
 
-    if not rows:
-        raise ValueError("Sheet is empty.")
+    if len(rows) < 4:
+        raise ValueError("Sheet has fewer than 4 rows; expected headers on row 4.")
 
-    # First row is the header
-    raw_headers = [str(c).strip() if c is not None else "" for c in rows[0]]
+    # Row 4 (0-indexed: rows[3]) contains the column headers.
+    # Rows 1–3 are title/metadata rows that must be skipped.
+    raw_headers = [str(c).strip() if c is not None else "" for c in rows[3]]
 
     col_duid     = _find_col(raw_headers, _COL_DUID)
     col_name     = _find_col(raw_headers, _COL_NAME)
@@ -111,7 +112,7 @@ def _parse_xlsx(xlsx_bytes: bytes) -> dict[str, list[dict]]:
 
     result: dict[str, list[dict]] = {s: [] for s in REGION_TO_STATE.values()}
 
-    for row in rows[1:]:
+    for row in rows[4:]:
         def cell(idx: int | None) -> str:
             if idx is None or idx >= len(row):
                 return ""
