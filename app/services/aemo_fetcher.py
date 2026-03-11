@@ -9,11 +9,13 @@ File naming conventions on NEMWEB:
 
   From 11 Jan 2026 — FPPMW format (nested ZIP):
     PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD[_<suffix>].zip
-    Outer ZIP → inner ZIP → one or two CSVs.
-    Each daily inner ZIP may contain two CSV files covering the first and
-    second 12-hour halves of the NEM market day respectively (04:00–16:00
-    and 16:00–04:00 UTC).  Both must be read and concatenated to obtain
-    full 24-hour coverage.
+    Outer ZIP → one or more inner ZIPs → CSV(s).
+    The NEM market day (04:00–04:00 AEST) is split into two 12-hour halves.
+    The second half (16:00 AEST → 04:00 AEST next calendar day) is typically
+    published as a separate inner ZIP whose filename carries the next calendar
+    date.  All inner ZIPs must be opened and concatenated; the data_processor
+    applies the authoritative [04:00 AEST D, 04:00 AEST D+1) boundary filter.
+    All AEMO NEMWEB timestamps are in AEST (UTC+10), no daylight saving.
 
 Current directory (https://www.nemweb.com.au/REPORTS/Current/FPPDAILY/):
   Individual daily files (FPP or FPPMW naming), one per market day.
@@ -220,64 +222,68 @@ def _extract_csv_from_zip(
     target_date: date,
 ) -> bytes:
     """
-    Extract the daily CSV from a downloaded ZIP.
+    Extract the daily CSV bytes from a downloaded ZIP.
 
-    fpp_bundle:   outer ZIP contains per-day CSVs directly.
-    fppmw_daily:  outer ZIP → inner ZIP → CSV (nested structure).
+    fpp_bundle:   outer ZIP contains per-day CSVs directly (filter by date_str).
+    fppmw_daily:  outer ZIP → one or more inner ZIPs → CSV(s).
+                  The second 12-hour half of a NEM market day (16:00–04:00 AEST)
+                  is often packaged in a separate inner ZIP whose name carries the
+                  next calendar date.  We therefore open ALL inner ZIPs and
+                  concatenate every CSV found — the data_processor applies the
+                  authoritative [04:00 AEST D, 04:00 AEST D+1) boundary filter.
     """
     zip_bytes = io.BytesIO(zip_content)
     with zipfile.ZipFile(zip_bytes) as outer_zf:
         all_entries = outer_zf.namelist()
-        all_csvs = [n for n in all_entries if n.lower().endswith(".csv")]
+        all_csvs = sorted(n for n in all_entries if n.lower().endswith(".csv"))
 
-        inner_zf = None
-        if not all_csvs:
-            # FPPMW daily: outer ZIP wraps an inner ZIP
-            inner_zips = [n for n in all_entries if n.lower().endswith(".zip")]
-            if not inner_zips:
-                raise AEMOFetchError("ZIP file contained no CSV files.")
-            logger.info("Nested ZIP (FPPMW daily); opening: %s", inner_zips[0])
-            inner_zf = zipfile.ZipFile(io.BytesIO(outer_zf.read(inner_zips[0])))
-            all_entries = inner_zf.namelist()
-            all_csvs = [n for n in all_entries if n.lower().endswith(".csv")]
-            if not all_csvs:
-                inner_zf.close()
-                raise AEMOFetchError("Inner ZIP contained no CSV files.")
-
-        active_zf = inner_zf if inner_zf is not None else outer_zf
-        try:
-            if inner_zf is not None:
-                # Inside an FPPMW inner ZIP every CSV belongs to this market
-                # day (the two 12-hour halves may carry the next calendar date
-                # in their filenames — do NOT filter by date_str here).
-                daily_csvs = sorted(all_csvs)
-            else:
-                # fpp_bundle: outer ZIP contains per-day CSVs — filter to target date.
-                daily_csvs = sorted(n for n in all_csvs if date_str in n)
-                if not daily_csvs:
-                    if len(all_csvs) == 1:
-                        daily_csvs = all_csvs
-                    else:
-                        all_csvs_sorted = sorted(all_csvs, reverse=True)
-                        logger.warning(
-                            "No CSV matching %s in %s; available: %s",
-                            date_str, filename, all_csvs_sorted[:5],
+        if all_csvs:
+            # fpp_bundle: outer ZIP contains per-day CSVs directly.
+            # Filter to the target date so we don't pick up neighbouring days.
+            daily_csvs = sorted(n for n in all_csvs if date_str in n)
+            if not daily_csvs:
+                if len(all_csvs) == 1:
+                    daily_csvs = all_csvs
+                else:
+                    all_csvs_sorted = sorted(all_csvs, reverse=True)
+                    logger.warning(
+                        "No CSV matching %s in %s; available: %s",
+                        date_str, filename, all_csvs_sorted[:5],
+                    )
+                    raise AEMOFetchError(
+                        f"No data file found for {target_date.strftime('%d %B %Y')} "
+                        "inside the archive ZIP. Available dates: "
+                        + ", ".join(
+                            m.group(1)
+                            for n in all_csvs_sorted[:5]
+                            for m in [re.search(r'(\d{8})', n)]
+                            if m
                         )
-                        raise AEMOFetchError(
-                            f"No data file found for {target_date.strftime('%d %B %Y')} "
-                            "inside the archive ZIP. Available dates: "
-                            + ", ".join(
-                                m.group(1)
-                                for n in all_csvs_sorted[:5]
-                                for m in [re.search(r'(\d{8})', n)]
-                                if m
-                            )
-                        )
+                    )
             logger.info("Extracting CSV(s): %s", daily_csvs)
-            return b"".join(active_zf.read(name) for name in daily_csvs)
-        finally:
-            if inner_zf is not None:
-                inner_zf.close()
+            return b"".join(outer_zf.read(name) for name in daily_csvs)
+
+        # No direct CSVs — FPPMW daily: outer ZIP wraps one or more inner ZIPs.
+        # Each inner ZIP typically holds one 12-hour half of the market day;
+        # read ALL of them to capture the full 24-hour period.
+        inner_zips = sorted(n for n in all_entries if n.lower().endswith(".zip"))
+        if not inner_zips:
+            raise AEMOFetchError("ZIP file contained no CSV files or inner ZIPs.")
+
+        all_csv_bytes: list[bytes] = []
+        for inner_zip_name in inner_zips:
+            logger.info("Opening inner ZIP: %s", inner_zip_name)
+            with zipfile.ZipFile(io.BytesIO(outer_zf.read(inner_zip_name))) as inner_zf:
+                inner_csvs = sorted(
+                    n for n in inner_zf.namelist() if n.lower().endswith(".csv")
+                )
+                logger.info("Extracting from %s: %s", inner_zip_name, inner_csvs)
+                for csv_name in inner_csvs:
+                    all_csv_bytes.append(inner_zf.read(csv_name))
+
+        if not all_csv_bytes:
+            raise AEMOFetchError("Inner ZIP(s) contained no CSV files.")
+        return b"".join(all_csv_bytes)
 
 
 async def _fetch_fppmw_monthly_csv(bundle_url: str, date_str: str) -> bytes:

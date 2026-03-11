@@ -15,7 +15,8 @@ class DataProcessingError(Exception):
     pass
 
 
-# NEM market day boundary: 04:00 UTC
+# NEM market day boundary: 04:00 AEST (UTC+10, no daylight saving).
+# All AEMO NEMWEB timestamps are in AEST.
 _DAY_START_HOUR = 4
 
 
@@ -100,12 +101,18 @@ def filter_and_process(
     csv_bytes_next: bytes | None = None,
 ) -> pl.DataFrame:
     """
-    Parse and filter CSV data to the requested DUID, covering the full NEM
-    market day: 04:00 UTC on target_date → 04:00 UTC on target_date + 1 day.
+    Parse and filter CSV data to the requested DUID, covering exactly one NEM
+    market day: 04:00 AEST on target_date → 04:00 AEST on target_date + 1 day.
 
-    csv_bytes_next: optional CSV for target_date + 1 day, kept as a safety
-    net for older single-CSV files.  Since Jan 2026 FPPMW daily ZIPs may
-    already include both 12-hour halves; any overlap is removed by dedup.
+    AEMO NEMWEB timestamps are in AEST (UTC+10, no daylight saving).
+    The NEM market day is split into two 12-hour halves that may be packaged
+    in separate ZIP files:
+      • 04:00–16:00 AEST  → file dated D   (target_date)
+      • 16:00–04:00 AEST  → file dated D+1 (csv_bytes_next)
+
+    Both files are merged and then the strict [04:00 AEST D, 04:00 AEST D+1)
+    boundary filter is applied, so we never include data from a neighbouring
+    market day regardless of what the fetched files contain.
     """
     df = _parse_and_filter_duid(csv_bytes, duid)
 
@@ -139,9 +146,25 @@ def filter_and_process(
         pl.col("MW_QUALITY_FLAG").cast(pl.Int32, strict=False),
     ])
 
+    # Apply the NEM market day boundary in AEST.
+    # Timestamps in the CSVs are naive AEST datetimes; we compare directly.
+    day_start = datetime.combine(target_date, dtime(_DAY_START_HOUR, 0, 0))
+    day_end   = datetime.combine(target_date + timedelta(days=1), dtime(_DAY_START_HOUR, 0, 0))
+    df = df.filter(
+        (pl.col("MEASUREMENT_DATETIME") >= day_start) &
+        (pl.col("MEASUREMENT_DATETIME") <  day_end)
+    )
+
+    if df.is_empty():
+        raise DataProcessingError(
+            f"No data found for DUID '{duid}' within the NEM market day "
+            f"({day_start.strftime('%d %b %Y %H:%M')}–"
+            f"{day_end.strftime('%d %b %Y %H:%M')} AEST). "
+            "This unit may not have been operational or eligible for FPP on this date."
+        )
+
     # Deduplicate on MEASUREMENT_DATETIME (boundary rows may appear in both
-    # the D and D+1 files) then sort chronologically.  No time-boundary
-    # filter is applied — the raw CSV contents define the coverage window.
+    # the D and D+1 files) then sort chronologically.
     return (
         df.unique(subset=["MEASUREMENT_DATETIME"], keep="first")
           .sort("MEASUREMENT_DATETIME")
