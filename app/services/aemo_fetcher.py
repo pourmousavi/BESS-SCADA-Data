@@ -2,8 +2,9 @@
 Downloads and extracts FPPDAILY ZIP files from AEMO NEMWEB.
 """
 import io
+import re
 import zipfile
-from datetime import date, datetime, timedelta
+from datetime import date
 
 import httpx
 
@@ -40,16 +41,44 @@ async def _list_directory(base_url: str, client: httpx.AsyncClient) -> list[str]
     except httpx.HTTPStatusError as e:
         raise AEMOFetchError(f"AEMO server returned error {e.response.status_code}.")
 
-    # Extract href links from directory listing (simple parse, no BeautifulSoup needed)
+    # Extract href links — handle single/double quotes and full URLs
     filenames = []
-    for line in resp.text.splitlines():
-        if 'href="' in line and ".zip" in line.lower():
-            start = line.index('href="') + 6
-            end = line.index('"', start)
-            href = line[start:end]
-            if href.lower().endswith(".zip"):
-                filenames.append(href.split("/")[-1])
+    for href in re.findall(r'href=["\']([^"\']+)["\']', resp.text, re.IGNORECASE):
+        name = href.rstrip("/").split("/")[-1]
+        if name.lower().endswith(".zip"):
+            filenames.append(name)
     return filenames
+
+
+async def _find_file(
+    target_date: date, date_str: str, base_url: str, client: httpx.AsyncClient
+) -> tuple[list[str], str]:
+    """
+    Try multiple locations to find a ZIP file for date_str.
+    Returns (matching_filenames, base_url_where_found).
+    """
+    urls_to_try: list[str] = []
+
+    if base_url == AEMO_CURRENT_URL:
+        urls_to_try.append(AEMO_CURRENT_URL)
+        # Also try archive flat and archive monthly subdirectory as fallbacks
+        urls_to_try.append(AEMO_ARCHIVE_URL)
+        urls_to_try.append(AEMO_ARCHIVE_URL + target_date.strftime("%Y%m") + "/")
+    else:
+        # Archive: try flat listing first, then monthly subdirectory
+        urls_to_try.append(AEMO_ARCHIVE_URL)
+        urls_to_try.append(AEMO_ARCHIVE_URL + target_date.strftime("%Y%m") + "/")
+
+    for url in urls_to_try:
+        try:
+            filenames = await _list_directory(url, client)
+        except AEMOFetchError:
+            continue
+        matching = [f for f in filenames if date_str in f]
+        if matching:
+            return matching, url
+
+    return [], base_url
 
 
 def _date_str(target_date: date) -> str:
@@ -74,19 +103,7 @@ async def fetch_csv_for_date(target_date: date, duid: str) -> bytes:
     date_str = _date_str(target_date)
 
     async with httpx.AsyncClient() as client:
-        # List the directory to find the correct filename
-        try:
-            filenames = await _list_directory(base_url, client)
-        except AEMOFetchError:
-            # Fallback: try archive if current failed
-            if base_url == AEMO_CURRENT_URL:
-                filenames = await _list_directory(AEMO_ARCHIVE_URL, client)
-                base_url = AEMO_ARCHIVE_URL
-            else:
-                raise
-
-        # Find a file matching the date
-        matching = [f for f in filenames if date_str in f]
+        matching, base_url = await _find_file(target_date, date_str, base_url, client)
         if not matching:
             raise AEMOFetchError(
                 f"No FPPDAILY data found for {target_date.strftime('%d %B %Y')}. "
