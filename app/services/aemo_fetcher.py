@@ -7,18 +7,31 @@ File naming conventions on NEMWEB:
     PUBLIC_NEXT_DAY_FPP_YYYYMMDD[_<suffix>].zip
     ZIP contains the daily CSV directly.
 
-  From 11 Jan 2026 — FPPMW format (nested ZIP):
-    PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD[_<suffix>].zip
-    Outer ZIP → one or more inner ZIPs → CSV(s).
-    The NEM market day (04:00–04:00 AEST) is split into two 12-hour halves.
-    The second half (16:00 AEST → 04:00 AEST next calendar day) is typically
-    published as a separate inner ZIP whose filename carries the next calendar
-    date.  All inner ZIPs must be opened and concatenated; the data_processor
-    applies the authoritative [04:00 AEST D, 04:00 AEST D+1) boundary filter.
-    All AEMO NEMWEB timestamps are in AEST (UTC+10), no daylight saving.
+  From 11 Jan 2026 — FPPMW format (two ZIPs per market day):
+    Each NEM market day (04:00–04:00 AEST) is split into two 12-hour
+    halves, each published as a separate outer ZIP.  Both files carry
+    the same settlement date (YYYYMMDD) in their name:
+
+      First half  (04:00–16:00 AEST):
+        PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_<seq>.zip
+
+      Second half (16:00–04:00 AEST next calendar day):
+        PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDDHHMMSS_<seq+1>.zip
+
+    Both are identified by searching for "FPPMW" AND "YYYYMMDD" in the
+    directory listing.  _find_files_in returns ALL matches; fetch_csv_for_date
+    downloads them all and concatenates their CSV bytes.
+    The data_processor applies the authoritative [04:00 AEST D, 04:00 AEST D+1)
+    boundary filter.  All AEMO NEMWEB timestamps are in AEST (UTC+10),
+    no daylight saving.
+
+    Inner ZIP structure (each outer ZIP):
+      PUBLIC_NEXT_DAY_FPPMW_*.zip   ← outer ZIP (~MB)
+        PUBLIC_NEXT_DAY_FPPMW_*.ZIP ← inner ZIP
+          PUBLIC_NEXT_DAY_FPPMW_*.CSV
 
 Current directory (https://www.nemweb.com.au/REPORTS/Current/FPPDAILY/):
-  Individual daily files (FPP or FPPMW naming), one per market day.
+  Two files per market day (FPPMW format), or one per day (FPP format).
   Keeps a long rolling history (180+ files observed).
 
 Archive directory (https://nemweb.com.au/Reports/Archive/FPPDAILY/):

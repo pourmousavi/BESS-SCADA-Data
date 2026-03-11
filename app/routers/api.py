@@ -3,7 +3,7 @@ REST API endpoints for BESS SCADA data.
 """
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -57,28 +57,16 @@ def get_quality_flags():
     return json.loads(flags_file.read_text())
 
 
-async def _fetch_day_pair(target_date: date, duid: str) -> tuple[bytes, bytes | None]:
+async def _fetch_day_csv(target_date: date, duid: str) -> bytes:
     """
-    Fetch CSV bytes for target_date and, if available, for target_date + 1 day.
+    Fetch and concatenate all FPPMW ZIP files for target_date.
 
-    Each FPPMW daily ZIP may contain two CSV halves covering the full NEM
-    market day (04:00–16:00 UTC and 16:00–04:00 UTC next day); both are
-    concatenated inside fetch_csv_for_date.  The next-day file is also
-    fetched as a safety net for older single-CSV files and boundary coverage.
-    It is fetched with skip_future_check=True (it may be today's date) and
-    any error is silently swallowed — partial data is acceptable.
+    fetch_csv_for_date already finds ALL files whose name contains the
+    settlement date (both the first and second 12-hour halves) and
+    concatenates their CSV bytes.  The data_processor then applies the
+    [04:00 AEST D, 04:00 AEST D+1) boundary filter.
     """
-    import asyncio as _asyncio
-    csv_bytes = await fetch_csv_for_date(target_date, duid)
-
-    next_date = target_date + timedelta(days=1)
-    csv_next: bytes | None = None
-    try:
-        csv_next = await fetch_csv_for_date(next_date, duid, skip_future_check=True)
-    except Exception as exc:
-        logger.debug("Next-day CSV not available for %s (%s): %s", duid, next_date, exc)
-
-    return csv_bytes, csv_next
+    return await fetch_csv_for_date(target_date, duid)
 
 
 @router.get("/data")
@@ -95,8 +83,8 @@ async def get_data(
     ip = _get_ip(request)
 
     try:
-        csv_bytes, csv_next = await _fetch_day_pair(target_date, duid)
-        df = filter_and_process(csv_bytes, duid, target_date, csv_next)
+        csv_bytes = await _fetch_day_csv(target_date, duid)
+        df = filter_and_process(csv_bytes, duid, target_date)
         summary = compute_summary(df)
         records = to_json_records(df)
         log_request(ip, duid, date, "view")
@@ -125,8 +113,8 @@ async def download_csv(
     ip = _get_ip(request)
 
     try:
-        csv_bytes, csv_next = await _fetch_day_pair(target_date, duid)
-        df = filter_and_process(csv_bytes, duid, target_date, csv_next)
+        csv_bytes = await _fetch_day_csv(target_date, duid)
+        df = filter_and_process(csv_bytes, duid, target_date)
         output = to_csv_bytes(df)
         log_request(ip, duid, date, "download_csv")
         filename = f"BESS_SCADA_{duid}_{date}.csv"
@@ -152,8 +140,8 @@ async def download_parquet(
     ip = _get_ip(request)
 
     try:
-        csv_bytes, csv_next = await _fetch_day_pair(target_date, duid)
-        df = filter_and_process(csv_bytes, duid, target_date, csv_next)
+        csv_bytes = await _fetch_day_csv(target_date, duid)
+        df = filter_and_process(csv_bytes, duid, target_date)
         output = to_parquet_bytes(df)
         log_request(ip, duid, date, "download_parquet")
         filename = f"BESS_SCADA_{duid}_{date}.parquet"
