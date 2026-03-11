@@ -17,5 +17,5 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git remote add huggingface https://YOUR_HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/YOUR_HF_USERNAME/YOUR_SPACE_NAME
+          git remote add huggingface https://YOUR_HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/pourmousavi/BESS-SCADA-Data
           git push huggingface main --force
