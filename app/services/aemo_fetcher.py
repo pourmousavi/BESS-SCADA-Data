@@ -246,26 +246,33 @@ def _extract_csv_from_zip(
 
         active_zf = inner_zf if inner_zf is not None else outer_zf
         try:
-            daily_csvs = sorted(n for n in all_csvs if date_str in n)
-            if not daily_csvs:
-                if len(all_csvs) == 1:
-                    daily_csvs = all_csvs
-                else:
-                    all_csvs_sorted = sorted(all_csvs, reverse=True)
-                    logger.warning(
-                        "No CSV matching %s in %s; available: %s",
-                        date_str, filename, all_csvs_sorted[:5],
-                    )
-                    raise AEMOFetchError(
-                        f"No data file found for {target_date.strftime('%d %B %Y')} "
-                        "inside the archive ZIP. Available dates: "
-                        + ", ".join(
-                            m.group(1)
-                            for n in all_csvs_sorted[:5]
-                            for m in [re.search(r'(\d{8})', n)]
-                            if m
+            if inner_zf is not None:
+                # Inside an FPPMW inner ZIP every CSV belongs to this market
+                # day (the two 12-hour halves may carry the next calendar date
+                # in their filenames — do NOT filter by date_str here).
+                daily_csvs = sorted(all_csvs)
+            else:
+                # fpp_bundle: outer ZIP contains per-day CSVs — filter to target date.
+                daily_csvs = sorted(n for n in all_csvs if date_str in n)
+                if not daily_csvs:
+                    if len(all_csvs) == 1:
+                        daily_csvs = all_csvs
+                    else:
+                        all_csvs_sorted = sorted(all_csvs, reverse=True)
+                        logger.warning(
+                            "No CSV matching %s in %s; available: %s",
+                            date_str, filename, all_csvs_sorted[:5],
                         )
-                    )
+                        raise AEMOFetchError(
+                            f"No data file found for {target_date.strftime('%d %B %Y')} "
+                            "inside the archive ZIP. Available dates: "
+                            + ", ".join(
+                                m.group(1)
+                                for n in all_csvs_sorted[:5]
+                                for m in [re.search(r'(\d{8})', n)]
+                                if m
+                            )
+                        )
             logger.info("Extracting CSV(s): %s", daily_csvs)
             return b"".join(active_zf.read(name) for name in daily_csvs)
         finally:
