@@ -92,6 +92,13 @@ function onBessChange() {
 }
 
 /* ── Load data ── */
+function setFormLocked(locked) {
+  selState.disabled = locked;
+  selBess.disabled  = locked || !selState.value;
+  inpDate.disabled  = locked || !selBess.value;
+  btnLoad.disabled  = locked;
+}
+
 async function onLoad() {
   const duid = selBess.value;
   const date = inpDate.value;
@@ -101,7 +108,7 @@ async function onLoad() {
   hideError();
   hideResults();
   showLoading(true);
-  btnLoad.disabled = true;
+  setFormLocked(true);
 
   try {
     const resp = await fetch(`${API}/api/data?duid=${encodeURIComponent(duid)}&date=${date}`);
@@ -118,7 +125,7 @@ async function onLoad() {
     showError(e.message);
   } finally {
     showLoading(false);
-    btnLoad.disabled = false;
+    setFormLocked(false);
   }
 }
 
