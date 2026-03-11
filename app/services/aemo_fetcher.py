@@ -79,51 +79,50 @@ async def _find_file(
     """
     Try multiple locations to find a ZIP for the target date.
 
-    Handles two archive structures:
-      1. Daily ZIPs: PUBLIC_FPPDAILY_D_YYYYMMDD_xxx.zip  → match by YYYYMMDD
-      2. Monthly ZIPs: PUBLIC_FPPDAILY_YYYYMM_xxx.zip    → match by YYYYMM,
-         then search inside the ZIP for the correct daily CSV
+    NEMWEB FPPDAILY archive has two file types:
+      - Daily:   PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD.zip  (individual day, MW metering data)
+      - Monthly: PUBLIC_NEXT_DAY_FPP_YYYYMMDD.zip    (month-end date, no "MW" in name,
+                                                       contains all daily CSVs for that month)
+
+    Strategy:
+      1. Look for an exact daily FPPMW match (date_str in filename)
+      2. Look for a monthly FPP archive (month_str in filename, "FPPMW" NOT in filename)
+      3. Also try Current URL as fallback — NEMWEB may keep files longer than 7 days
 
     Returns (matching_filenames, base_url_where_found).
     """
     month_str = target_date.strftime("%Y%m")
 
-    urls_to_try: list[str] = []
-    if base_url == AEMO_CURRENT_URL:
-        urls_to_try = [
-            AEMO_CURRENT_URL,
-            AEMO_ARCHIVE_URL,
-            AEMO_ARCHIVE_URL + month_str + "/",
-        ]
-    else:
-        urls_to_try = [
-            AEMO_ARCHIVE_URL,
-            AEMO_ARCHIVE_URL + month_str + "/",
-        ]
+    # Always try archive subdirectory and Current as fallbacks regardless of date age
+    urls_to_try = [base_url, AEMO_ARCHIVE_URL, AEMO_CURRENT_URL]
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique_urls = [u for u in urls_to_try if u not in seen and not seen.add(u)]  # type: ignore[func-returns-value]
 
-    for url in urls_to_try:
+    filenames: list[str] = []
+    for url in unique_urls:
         try:
             filenames = await _list_directory(url, client)
         except AEMOFetchError as e:
             logger.warning("Could not list %s: %s", url, e)
             continue
 
-        # Try exact daily match first
+        # 1. Exact daily match (e.g. PUBLIC_NEXT_DAY_FPPMW_20260224.zip)
         matching = [f for f in filenames if date_str in f]
         if matching:
             logger.info("Found daily match at %s: %s", url, matching[0])
             return matching, url
 
-        # Try monthly match (archive stores one ZIP per month containing all daily CSVs)
-        monthly = [f for f in filenames if month_str in f and date_str not in f]
+        # 2. Monthly archive match: PUBLIC_NEXT_DAY_FPP_YYYYMMDD.zip (no "MW" in name).
+        #    Excludes daily FPPMW files which also contain the month string.
+        monthly = [f for f in filenames if month_str in f and "FPPMW" not in f]
         if monthly:
-            logger.info(
-                "No daily match; found monthly archive at %s: %s", url, monthly[0]
-            )
+            logger.info("Found monthly archive at %s: %s", url, monthly[0])
             return monthly, url
 
     logger.error(
-        "No file found for date %s in any of: %s", date_str, urls_to_try
+        "No file found for date %s. Searched: %s. Last listing sample: %s",
+        date_str, unique_urls, filenames[:10],
     )
     return [], base_url
 
