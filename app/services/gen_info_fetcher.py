@@ -40,11 +40,12 @@ IN_SERVICE   = "In Service"
 
 # Column names to search for (case-insensitive substring match as fallback)
 _COL_DUID       = "DUID"
-_COL_NAME       = "Station Name"
+_COL_NAME       = "Unit Name"
 _COL_TECH       = "Technology Type"
-_COL_STATUS     = "Commitment Status"
-_COL_REGION     = "Region"
-_COL_CAPACITY   = "Reg Cap"          # "Reg Cap (MW)" — matched as prefix
+_COL_STATUS       = "Commitment Status"
+_COL_REGION       = "Region"
+_COL_CAPACITY_MW  = "Unit Capacity (MW AC)"
+_COL_CAPACITY_MWH = "Agg Nameplate Storage Capacity (MWh)"
 
 CACHE_TTL = timedelta(hours=24)
 
@@ -91,12 +92,13 @@ def _parse_xlsx(xlsx_bytes: bytes) -> dict[str, list[dict]]:
     # Rows 1–3 are title/metadata rows that must be skipped.
     raw_headers = [str(c).strip() if c is not None else "" for c in rows[3]]
 
-    col_duid     = _find_col(raw_headers, _COL_DUID)
-    col_name     = _find_col(raw_headers, _COL_NAME)
-    col_tech     = _find_col(raw_headers, _COL_TECH)
-    col_status   = _find_col(raw_headers, _COL_STATUS)
-    col_region   = _find_col(raw_headers, _COL_REGION)
-    col_capacity = _find_col(raw_headers, _COL_CAPACITY)
+    col_duid         = _find_col(raw_headers, _COL_DUID)
+    col_name         = _find_col(raw_headers, _COL_NAME)
+    col_tech         = _find_col(raw_headers, _COL_TECH)
+    col_status       = _find_col(raw_headers, _COL_STATUS)
+    col_region       = _find_col(raw_headers, _COL_REGION)
+    col_capacity_mw  = _find_col(raw_headers, _COL_CAPACITY_MW)
+    col_capacity_mwh = _find_col(raw_headers, _COL_CAPACITY_MWH)
 
     missing = [
         name for name, idx in [
@@ -137,19 +139,22 @@ def _parse_xlsx(xlsx_bytes: bytes) -> dict[str, list[dict]]:
 
         name = cell(col_name) or duid
 
-        capacity_mw: float | None = None
-        if col_capacity is not None:
-            raw_cap = row[col_capacity] if col_capacity < len(row) else None
-            if raw_cap is not None:
-                try:
-                    capacity_mw = float(raw_cap)
-                except (ValueError, TypeError):
-                    pass
+        def _float(col_idx: int | None) -> float | None:
+            if col_idx is None or col_idx >= len(row):
+                return None
+            v = row[col_idx]
+            if v is None:
+                return None
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                return None
 
         result[state].append({
             "duid": duid,
             "name": name,
-            "capacity_mw": capacity_mw,
+            "capacity_mw":  _float(col_capacity_mw),
+            "capacity_mwh": _float(col_capacity_mwh),
             "region": region,
         })
 

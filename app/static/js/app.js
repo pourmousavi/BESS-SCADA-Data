@@ -62,24 +62,33 @@ async function init() {
 
   selState.disabled = false;
   selState.addEventListener('change', onStateChange);
+  selBess.addEventListener('change', onBessChange);
   btnLoad.addEventListener('click', onLoad);
-  selBess.addEventListener('change', () => { btnLoad.disabled = !selBess.value; });
 }
 
 function onStateChange() {
   const state = selState.value;
   selBess.innerHTML = '<option value="">— Select BESS —</option>';
   selBess.disabled  = !state;
+  inpDate.disabled  = true;
   btnLoad.disabled  = true;
 
   if (!state || !bessList[state]) return;
 
   bessList[state].forEach(b => {
+    const mw  = b.capacity_mw  != null ? `${b.capacity_mw} MW`  : '? MW';
+    const mwh = b.capacity_mwh != null ? `${b.capacity_mwh} MWh` : '? MWh';
     const opt = document.createElement('option');
     opt.value = b.duid;
-    opt.textContent = `${b.name} (${b.capacity_mw} MW)`;
+    opt.textContent = `${b.duid} (${b.name}) (${mw} / ${mwh})`;
     selBess.appendChild(opt);
   });
+}
+
+function onBessChange() {
+  const hasBess = !!selBess.value;
+  inpDate.disabled = !hasBess;
+  btnLoad.disabled = !hasBess;
 }
 
 /* ── Load data ── */
