@@ -142,43 +142,39 @@ async def _find_file_in(
     "fpp_bundle"     FPP monthly archive bundle.
                      Structure: outer ZIP → per-day CSVs directly.
     """
-    # 1. Exact date match
-    exact = [f for f in filenames if date_str in f]
-    if exact:
-        # Prefer FPPMW over FPP when both exist for the same date
-        fppmw_exact = [f for f in exact if "FPPMW" in f]
-        chosen = fppmw_exact[0] if fppmw_exact else exact[0]
-        kind = "fppmw_daily" if "FPPMW" in chosen else "fpp_bundle"
-        logger.info("Exact match at %s: %s (kind=%s)", url, chosen, kind)
-        return chosen, url, kind
+    # Only FPPMW files are used. FPP files lack MEASUREMENT_DATETIME,
+    # MEASURED_MW, and MW_QUALITY_FLAG and cannot supply SCADA data.
 
-    # 2. Archive bundle match: largest embedded date <= target_date.
-    #    FPP files: always treated as monthly bundles.
-    #    FPPMW files: only treated as a monthly bundle when their embedded
-    #      date is an end-of-month date (= last day of previous month
-    #      convention).  Non-month-end FPPMW dates are individual daily
-    #      archive copies and must not be used as bundles.
+    # 1. Exact date match — FPPMW files only
+    fppmw_exact = [f for f in filenames if "FPPMW" in f and date_str in f]
+    if fppmw_exact:
+        chosen = fppmw_exact[0]
+        logger.info("Exact match at %s: %s", url, chosen)
+        return chosen, url, "fppmw_daily"
+
+    # 2. Archive bundle match: FPPMW files whose embedded date is an
+    #    end-of-month date (= last day of the previous month convention).
+    #    Non-month-end FPPMW dates are individual daily archive copies —
+    #    they only contain data for their own date, so skip them here.
     candidates: list[tuple[date, str]] = []
     for f in filenames:
+        if "FPPMW" not in f:
+            continue
         zip_date = _extract_zip_date(f)
         if zip_date is None or zip_date > target_date:
             continue
-        if "FPPMW" in f and not _is_month_end(zip_date):
-            continue  # individual daily archive copy, not a monthly bundle
+        if not _is_month_end(zip_date):
+            continue
         candidates.append((zip_date, f))
 
     if candidates:
-        # Primary sort: latest date first.
-        # Secondary: prefer FPPMW over FPP for the same date (FPPMW has
-        # actual metered data; FPP has forecast/price data).
-        candidates.sort(key=lambda x: (x[0], "FPPMW" in x[1]), reverse=True)
+        candidates.sort(reverse=True)  # latest bundle first
         best_date, best_file = candidates[0]
-        kind = "fppmw_monthly" if "FPPMW" in best_file else "fpp_bundle"
         logger.info(
-            "Bundle match at %s: %s (start %s covers %s, kind=%s)",
-            url, best_file, best_date, target_date, kind,
+            "Bundle match at %s: %s (start %s covers %s)",
+            url, best_file, best_date, target_date,
         )
-        return best_file, url, kind
+        return best_file, url, "fppmw_monthly"
 
     return None
 

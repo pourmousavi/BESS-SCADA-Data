@@ -5,8 +5,8 @@ from datetime import date
 AEMO_CURRENT_URL = "https://www.nemweb.com.au/REPORTS/Current/FPPDAILY/"
 AEMO_ARCHIVE_URL = "https://nemweb.com.au/Reports/Archive/FPPDAILY/"
 
-# Data availability: FPP scheme started December 2024
-DATA_START_DATE = date(2024, 12, 9)
+# Data availability: first FPPMW SCADA bundle is PUBLIC_NEXT_DAY_FPPMW_20250228.zip
+DATA_START_DATE = date(2025, 2, 28)
 
 # Request limits
 MAX_DAYS_PER_REQUEST = 1
