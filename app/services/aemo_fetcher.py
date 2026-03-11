@@ -129,34 +129,36 @@ def _date_str(target_date: date) -> str:
     return target_date.strftime("%Y%m%d")
 
 
-async def _find_file_in(
+async def _find_files_in(
     filenames: list[str],
     target_date: date,
     date_str: str,
     url: str,
-) -> tuple[str, str, str] | None:
+) -> list[tuple[str, str, str]]:
     """
-    Return (filename, url, kind) for the best ZIP to use, or None.
+    Return a list of (filename, url, kind) for every ZIP that covers target_date.
+
+    For FPPMW daily files there can be MORE THAN ONE match per date — AEMO
+    publishes each 12-hour half of the NEM market day as a separate ZIP, and
+    both halves carry the same settlement date in their filename.  Returning
+    all of them lets fetch_csv_for_date download and concatenate every half.
 
     kind values
     -----------
     "fppmw_daily"    Individual FPPMW file (Current or non-bundle Archive).
-                     Structure: outer ZIP → inner ZIP → CSV.
+                     Structure: outer ZIP → inner ZIP(s) → CSV(s).
     "fppmw_monthly"  FPPMW monthly archive bundle (multi-GB).
                      Structure: outer ZIP → per-day inner ZIPs → CSV.
                      Uses HTTP Range requests to avoid full download.
-    "fpp_bundle"     FPP monthly archive bundle.
-                     Structure: outer ZIP → per-day CSVs directly.
     """
     # Only FPPMW files are used. FPP files lack MEASUREMENT_DATETIME,
     # MEASURED_MW, and MW_QUALITY_FLAG and cannot supply SCADA data.
 
-    # 1. Exact date match — FPPMW files only
-    fppmw_exact = [f for f in filenames if "FPPMW" in f and date_str in f]
+    # 1. Exact date match — ALL FPPMW files for this date (may be 2 halves).
+    fppmw_exact = sorted(f for f in filenames if "FPPMW" in f and date_str in f)
     if fppmw_exact:
-        chosen = fppmw_exact[0]
-        logger.info("Exact match at %s: %s", url, chosen)
-        return chosen, url, "fppmw_daily"
+        logger.info("Exact match(es) at %s: %s", url, fppmw_exact)
+        return [(f, url, "fppmw_daily") for f in fppmw_exact]
 
     # 2. Archive bundle match: FPPMW files whose embedded date is an
     #    end-of-month date (= last day of the previous month convention).
@@ -180,17 +182,17 @@ async def _find_file_in(
             "Bundle match at %s: %s (start %s covers %s)",
             url, best_file, best_date, target_date,
         )
-        return best_file, url, "fppmw_monthly"
+        return [(best_file, url, "fppmw_monthly")]
 
-    return None
+    return []
 
 
-async def _find_file(
+async def _find_files(
     target_date: date, date_str: str, client: httpx.AsyncClient
-) -> tuple[str, str, str]:
+) -> list[tuple[str, str, str]]:
     """
-    Search Current then Archive for a ZIP covering target_date.
-    Returns (filename, base_url, kind).
+    Search Current then Archive for all ZIPs covering target_date.
+    Returns list of (filename, base_url, kind).
     """
     last_filenames: list[str] = []
     for url in [AEMO_CURRENT_URL, AEMO_ARCHIVE_URL]:
@@ -201,9 +203,9 @@ async def _find_file(
             continue
 
         last_filenames = filenames
-        result = await _find_file_in(filenames, target_date, date_str, url)
-        if result:
-            return result
+        results = await _find_files_in(filenames, target_date, date_str, url)
+        if results:
+            return results
 
     logger.error(
         "No file found for %s. Last directory listing sample: %s",
@@ -338,12 +340,16 @@ async def fetch_csv_for_date(
     skip_future_check: bool = False,
 ) -> bytes:
     """
-    Download FPPDAILY data for target_date and return raw CSV bytes.
-    Raises AEMOFetchError if unavailable.
+    Download ALL FPPDAILY files for target_date and return concatenated CSV bytes.
 
-    skip_future_check: set True when fetching D+1 for 24-hour coverage;
-    suppresses the "today or future" guard so the call can proceed if the
-    next-day file happens to be published already.
+    AEMO publishes each 12-hour half of the NEM market day as a separate ZIP
+    file, both carrying the same settlement date.  This function finds every
+    matching file and downloads them all, so the caller receives the raw bytes
+    for the entire market day before the data_processor applies its boundary
+    filter.
+
+    skip_future_check: set True when fetching D+1 as a safety-net for the
+    case where the second half is named with the next calendar date.
     """
     if target_date < DATA_START_DATE:
         raise AEMOFetchError(
@@ -356,36 +362,44 @@ async def fetch_csv_for_date(
     date_str = _date_str(target_date)
 
     async with httpx.AsyncClient() as client:
-        filename, found_url, kind = await _find_file(target_date, date_str, client)
-        zip_url = found_url + filename
+        file_list = await _find_files(target_date, date_str, client)
 
-        # FPPMW monthly bundles are several GB — extract via HTTP Range only.
-        if kind == "fppmw_monthly":
-            return await _fetch_fppmw_monthly_csv(zip_url, date_str)
+        csv_parts: list[bytes] = []
+        for filename, found_url, kind in file_list:
+            zip_url = found_url + filename
 
-        # fpp_bundle and fppmw_daily: download the (daily-sized) ZIP file.
-        logger.info("Downloading: %s", zip_url)
-        try:
-            resp = await client.get(
-                zip_url,
-                timeout=httpx.Timeout(AEMO_CONNECT_TIMEOUT, read=AEMO_READ_TIMEOUT),
-                follow_redirects=True,
-                headers=_HEADERS,
-            )
-            resp.raise_for_status()
-        except httpx.TimeoutException:
-            raise AEMOFetchError(
-                "AEMO server timed out while downloading the data file. "
-                "The file may be large. Please try again."
-            )
-        except httpx.HTTPStatusError as e:
-            raise AEMOFetchError(
-                f"Could not download data file (HTTP {e.response.status_code})."
-            )
+            # FPPMW monthly bundles are several GB — extract via HTTP Range only.
+            if kind == "fppmw_monthly":
+                csv_parts.append(await _fetch_fppmw_monthly_csv(zip_url, date_str))
+                continue
 
-        try:
-            return _extract_csv_from_zip(resp.content, filename, date_str, target_date)
-        except zipfile.BadZipFile:
-            raise AEMOFetchError(
-                "Downloaded file appears to be corrupt. Please try again."
-            )
+            # fppmw_daily: download the (daily-sized) ZIP file.
+            logger.info("Downloading: %s", zip_url)
+            try:
+                resp = await client.get(
+                    zip_url,
+                    timeout=httpx.Timeout(AEMO_CONNECT_TIMEOUT, read=AEMO_READ_TIMEOUT),
+                    follow_redirects=True,
+                    headers=_HEADERS,
+                )
+                resp.raise_for_status()
+            except httpx.TimeoutException:
+                raise AEMOFetchError(
+                    "AEMO server timed out while downloading the data file. "
+                    "The file may be large. Please try again."
+                )
+            except httpx.HTTPStatusError as e:
+                raise AEMOFetchError(
+                    f"Could not download data file (HTTP {e.response.status_code})."
+                )
+
+            try:
+                csv_parts.append(
+                    _extract_csv_from_zip(resp.content, filename, date_str, target_date)
+                )
+            except zipfile.BadZipFile:
+                raise AEMOFetchError(
+                    "Downloaded file appears to be corrupt. Please try again."
+                )
+
+        return b"".join(csv_parts)
