@@ -11,6 +11,7 @@ from fastapi.responses import Response
 from app.config import ANALYTICS_TOKEN, DATA_START_DATE, MAX_DAYS_PER_REQUEST
 from app.services.aemo_fetcher import AEMOFetchError, fetch_csv_for_date
 from app.services.analytics import get_stats, log_request
+from app.services.gen_info_fetcher import fetch_bess_list
 from app.services.data_processor import (
     DataProcessingError,
     compute_summary,
@@ -40,10 +41,10 @@ def _parse_date(date_str: str) -> date:
 
 
 @router.get("/bess")
-def get_bess_list():
-    """Return BESS list grouped by state."""
-    bess_file = DATA_DIR / "bess_list.json"
-    return json.loads(bess_file.read_text())
+async def get_bess_list():
+    """Return in-service battery storage units grouped by state, sourced from the
+    AEMO NEM Generation Information XLSX (cached 24 h; falls back to static JSON)."""
+    return await fetch_bess_list()
 
 
 @router.get("/quality-flags")
