@@ -114,6 +114,8 @@ async def _list_directory(base_url: str, client: httpx.AsyncClient) -> list[str]
         raise AEMOFetchError("AEMO server timed out. Please try again in a few minutes.")
     except httpx.HTTPStatusError as e:
         raise AEMOFetchError(f"AEMO server returned error {e.response.status_code}.")
+    except httpx.HTTPError as e:
+        raise AEMOFetchError(f"Network error fetching directory listing: {e}")
 
     filenames = []
     for href in re.findall(r'href=["\']([^"\']+)["\']', resp.text, re.IGNORECASE):
@@ -404,6 +406,10 @@ async def fetch_csv_for_date(
             except httpx.HTTPStatusError as e:
                 raise AEMOFetchError(
                     f"Could not download data file (HTTP {e.response.status_code})."
+                )
+            except httpx.HTTPError as e:
+                raise AEMOFetchError(
+                    f"Network error while downloading data file: {e}"
                 )
 
             try:

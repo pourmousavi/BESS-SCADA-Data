@@ -125,7 +125,7 @@ async function onLoad() {
   try {
     const resp = await fetch(`${API}/api/data?duid=${encodeURIComponent(duid)}&date=${date}`);
     if (!resp.ok) {
-      const err = await resp.json().catch(() => ({ detail: 'Unknown error' }));
+      const err = await resp.json().catch(() => ({ detail: `Server error ${resp.status} (no details available)` }));
       throw new Error(err.detail || `Server error ${resp.status}`);
     }
     const payload = await resp.json();
