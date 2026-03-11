@@ -9,7 +9,11 @@ File naming conventions on NEMWEB:
 
   From 11 Jan 2026 — FPPMW format (nested ZIP):
     PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD[_<suffix>].zip
-    Outer ZIP → inner ZIP → CSV.
+    Outer ZIP → inner ZIP → one or two CSVs.
+    Each daily inner ZIP may contain two CSV files covering the first and
+    second 12-hour halves of the NEM market day respectively (04:00–16:00
+    and 16:00–04:00 UTC).  Both must be read and concatenated to obtain
+    full 24-hour coverage.
 
 Current directory (https://www.nemweb.com.au/REPORTS/Current/FPPDAILY/):
   Individual daily files (FPP or FPPMW naming), one per market day.
@@ -242,29 +246,28 @@ def _extract_csv_from_zip(
 
         active_zf = inner_zf if inner_zf is not None else outer_zf
         try:
-            daily_csvs = [n for n in all_csvs if date_str in n]
-            if daily_csvs:
-                csv_name = daily_csvs[0]
-            elif len(all_csvs) == 1:
-                csv_name = all_csvs[0]
-            else:
-                all_csvs_sorted = sorted(all_csvs, reverse=True)
-                logger.warning(
-                    "No CSV matching %s in %s; available: %s",
-                    date_str, filename, all_csvs_sorted[:5],
-                )
-                raise AEMOFetchError(
-                    f"No data file found for {target_date.strftime('%d %B %Y')} "
-                    "inside the archive ZIP. Available dates: "
-                    + ", ".join(
-                        m.group(1)
-                        for n in all_csvs_sorted[:5]
-                        for m in [re.search(r'(\d{8})', n)]
-                        if m
+            daily_csvs = sorted(n for n in all_csvs if date_str in n)
+            if not daily_csvs:
+                if len(all_csvs) == 1:
+                    daily_csvs = all_csvs
+                else:
+                    all_csvs_sorted = sorted(all_csvs, reverse=True)
+                    logger.warning(
+                        "No CSV matching %s in %s; available: %s",
+                        date_str, filename, all_csvs_sorted[:5],
                     )
-                )
-            logger.info("Extracting CSV: %s", csv_name)
-            return active_zf.read(csv_name)
+                    raise AEMOFetchError(
+                        f"No data file found for {target_date.strftime('%d %B %Y')} "
+                        "inside the archive ZIP. Available dates: "
+                        + ", ".join(
+                            m.group(1)
+                            for n in all_csvs_sorted[:5]
+                            for m in [re.search(r'(\d{8})', n)]
+                            if m
+                        )
+                    )
+            logger.info("Extracting CSV(s): %s", daily_csvs)
+            return b"".join(active_zf.read(name) for name in daily_csvs)
         finally:
             if inner_zf is not None:
                 inner_zf.close()
@@ -299,11 +302,11 @@ async def _fetch_fppmw_monthly_csv(bundle_url: str, date_str: str) -> bytes:
             daily_zip_bytes = io.BytesIO(rz.read(daily_zip_name))
 
         with zipfile.ZipFile(daily_zip_bytes) as daily_zf:
-            csvs = [n for n in daily_zf.namelist() if n.lower().endswith(".csv")]
+            csvs = sorted(n for n in daily_zf.namelist() if n.lower().endswith(".csv"))
             if not csvs:
                 raise AEMOFetchError("Daily ZIP from monthly bundle contains no CSV.")
-            logger.info("Extracting CSV: %s", csvs[0])
-            return daily_zf.read(csvs[0])
+            logger.info("Extracting CSV(s): %s", csvs)
+            return b"".join(daily_zf.read(name) for name in csvs)
 
     try:
         return await asyncio.to_thread(_sync_extract)

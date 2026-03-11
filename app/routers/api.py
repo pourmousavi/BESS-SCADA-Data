@@ -61,10 +61,12 @@ async def _fetch_day_pair(target_date: date, duid: str) -> tuple[bytes, bytes | 
     """
     Fetch CSV bytes for target_date and, if available, for target_date + 1 day.
 
-    The NEM market day (04:00 UTC → 04:00 UTC next day) spans two calendar-day
-    files, so both are needed for complete 24-hour coverage.  The next-day file
-    is fetched with skip_future_check=True (it may be today's date) and any
-    error is silently swallowed — partial data is acceptable.
+    Each FPPMW daily ZIP may contain two CSV halves covering the full NEM
+    market day (04:00–16:00 UTC and 16:00–04:00 UTC next day); both are
+    concatenated inside fetch_csv_for_date.  The next-day file is also
+    fetched as a safety net for older single-CSV files and boundary coverage.
+    It is fetched with skip_future_check=True (it may be today's date) and
+    any error is silently swallowed — partial data is acceptable.
     """
     import asyncio as _asyncio
     csv_bytes = await fetch_csv_for_date(target_date, duid)

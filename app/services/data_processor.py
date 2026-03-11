@@ -103,9 +103,9 @@ def filter_and_process(
     Parse and filter CSV data to the requested DUID, covering the full NEM
     market day: 04:00 UTC on target_date → 04:00 UTC on target_date + 1 day.
 
-    csv_bytes_next: optional CSV for target_date + 1 day, used to fill the
-    second half of the market day (16:00 UTC – 04:00 UTC next day) which
-    lives in the following day's file.
+    csv_bytes_next: optional CSV for target_date + 1 day, kept as a safety
+    net for older single-CSV files.  Since Jan 2026 FPPMW daily ZIPs may
+    already include both 12-hour halves; any overlap is removed by dedup.
     """
     df = _parse_and_filter_duid(csv_bytes, duid)
 
