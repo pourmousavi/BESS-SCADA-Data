@@ -3,18 +3,24 @@ Downloads and extracts FPPDAILY ZIP files from AEMO NEMWEB.
 
 File naming conventions on NEMWEB:
 
+  Up to 10 Jan 2026 — FPP format:
+    PUBLIC_NEXT_DAY_FPP_YYYYMMDD[_<suffix>].zip
+    The ZIP contains the CSV directly.
+
+  From 11 Jan 2026 — FPPMW format (nested ZIP):
+    PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD[_<suffix>].zip
+    The outer ZIP contains an inner ZIP, which contains the CSV.
+    Both are named with the FPPMW prefix.
+
 Current directory (https://www.nemweb.com.au/REPORTS/Current/FPPDAILY/):
-  PUBLIC_NEXT_DAY_FPP_YYYYMMDD_<16-digit-suffix>.zip
-  One file per day, contains the single day's CSV.
+  Individual daily files (FPP or FPPMW), one per market day.
 
 Archive directory (https://nemweb.com.au/Reports/Archive/FPPDAILY/):
-  PUBLIC_NEXT_DAY_FPP_YYYYMMDD.zip
-  Each ZIP bundles multiple days of CSVs. The YYYYMMDD in the filename is the
-  START date of the bundle, NOT an end-of-month date.
-  Example: PUBLIC_NEXT_DAY_FPP_20250228.zip covers Feb 28 – Mar 30 2025;
-           PUBLIC_NEXT_DAY_FPP_20250331.zip covers Mar 31 2025 onwards.
-  To find data for a given date, download the archive whose start date is the
-  largest date that is <= the target date.
+  PUBLIC_NEXT_DAY_FPP_YYYYMMDD.zip — multi-day bundles (one per month).
+    The YYYYMMDD is the START date of the bundle.  Find data for a given
+    date by picking the bundle whose start date is the largest date <= target.
+  PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD.zip — individual daily files (FPPMW format),
+    only valid for an exact date match.
 
 Timezone note:
   INTERVAL_DATETIME / MEASUREMENT_DATETIME inside CSVs are in UTC (or NEM time
@@ -97,9 +103,10 @@ def _extract_zip_date(filename: str) -> date | None:
     """
     Extract the YYYYMMDD date embedded in a NEMWEB ZIP filename.
 
-    Handles both:
-      PUBLIC_NEXT_DAY_FPP_20260224_1234567890123456.zip  (Current, with suffix)
-      PUBLIC_NEXT_DAY_FPP_20260228.zip                   (Archive, no suffix)
+    Handles both naming conventions and both formats:
+      PUBLIC_NEXT_DAY_FPP_20260110_1234567890123456.zip  (Current, FPP, with suffix)
+      PUBLIC_NEXT_DAY_FPPMW_20260224_1234567890123456.zip (Current, FPPMW, with suffix)
+      PUBLIC_NEXT_DAY_FPP_20250228.zip                   (Archive bundle, no suffix)
     """
     # Match 8 consecutive digits that appear after an underscore and before
     # either another underscore, a dot, or end-of-string.
@@ -129,8 +136,8 @@ async def _find_file_in(
 
     Strategy:
       1. Exact date match — filename contains YYYYMMDD of the target date.
-         Covers Current files (PUBLIC_NEXT_DAY_FPP_20260224_XXXXXXXXXXXXXXXX.zip)
-         and any archive file whose start date happens to equal target_date.
+         Covers Current files (FPP or FPPMW naming) and any archive file
+         whose start date happens to equal target_date.
       2. Archive bundle match — find the ZIP whose embedded date is the largest
          date that is still <= target_date.  That bundle covers target_date.
     """
@@ -241,44 +248,62 @@ async def fetch_csv_for_date(target_date: date, duid: str) -> bytes:
             )
 
         # Extract the correct daily CSV from the ZIP.
-        # Archive ZIPs contain multiple CSVs (one per day); match by date_str.
-        # Current ZIPs contain a single CSV.
+        # FPP format  (up to Jan 10 2026): CSV lives directly inside the ZIP.
+        # FPPMW format (from Jan 11 2026): outer ZIP wraps an inner ZIP which
+        #   contains the CSV (NEMWEB nested-ZIP convention).
+        # Archive FPP ZIPs contain multiple CSVs (one per day); match by date.
         try:
             zip_bytes = io.BytesIO(resp.content)
-            with zipfile.ZipFile(zip_bytes) as zf:
-                all_entries = zf.namelist()
+            with zipfile.ZipFile(zip_bytes) as outer_zf:
+                all_entries = outer_zf.namelist()
                 all_csvs = [n for n in all_entries if n.lower().endswith(".csv")]
 
+                # FPPMW nested-ZIP: outer contains an inner ZIP, not a CSV.
+                inner_zf = None
                 if not all_csvs:
-                    raise AEMOFetchError("ZIP file contained no CSV files.")
+                    inner_zips = [n for n in all_entries if n.lower().endswith(".zip")]
+                    if not inner_zips:
+                        raise AEMOFetchError("ZIP file contained no CSV files.")
+                    logger.info("Nested ZIP (FPPMW format); opening: %s", inner_zips[0])
+                    inner_zf = zipfile.ZipFile(io.BytesIO(outer_zf.read(inner_zips[0])))
+                    all_entries = inner_zf.namelist()
+                    all_csvs = [n for n in all_entries if n.lower().endswith(".csv")]
+                    if not all_csvs:
+                        inner_zf.close()
+                        raise AEMOFetchError("Inner ZIP contained no CSV files.")
 
-                # Prefer the CSV whose name contains the target date
-                daily_csvs = [n for n in all_csvs if date_str in n]
-                if daily_csvs:
-                    csv_name = daily_csvs[0]
-                elif len(all_csvs) == 1:
-                    # Single-CSV ZIP (Current) — use it directly
-                    csv_name = all_csvs[0]
-                else:
-                    # Multi-CSV archive but no name match — log and use newest by name
-                    all_csvs_sorted = sorted(all_csvs, reverse=True)
-                    logger.warning(
-                        "No CSV matching %s in %s; available: %s",
-                        date_str, filename, all_csvs_sorted[:5],
-                    )
-                    raise AEMOFetchError(
-                        f"No data file found for {target_date.strftime('%d %B %Y')} "
-                        f"inside the archive ZIP. Available dates: "
-                        + ", ".join(
-                            m.group(1)
-                            for n in all_csvs_sorted[:5]
-                            for m in [re.search(r'(\d{8})', n)]
-                            if m
+                active_zf = inner_zf if inner_zf is not None else outer_zf
+                try:
+                    # Prefer the CSV whose name contains the target date
+                    daily_csvs = [n for n in all_csvs if date_str in n]
+                    if daily_csvs:
+                        csv_name = daily_csvs[0]
+                    elif len(all_csvs) == 1:
+                        # Single-CSV ZIP (Current) — use it directly
+                        csv_name = all_csvs[0]
+                    else:
+                        # Multi-CSV archive but no name match — report available dates
+                        all_csvs_sorted = sorted(all_csvs, reverse=True)
+                        logger.warning(
+                            "No CSV matching %s in %s; available: %s",
+                            date_str, filename, all_csvs_sorted[:5],
                         )
-                    )
+                        raise AEMOFetchError(
+                            f"No data file found for {target_date.strftime('%d %B %Y')} "
+                            f"inside the archive ZIP. Available dates: "
+                            + ", ".join(
+                                m.group(1)
+                                for n in all_csvs_sorted[:5]
+                                for m in [re.search(r'(\d{8})', n)]
+                                if m
+                            )
+                        )
 
-                logger.info("Extracting CSV: %s", csv_name)
-                csv_bytes = zf.read(csv_name)
+                    logger.info("Extracting CSV: %s", csv_name)
+                    csv_bytes = active_zf.read(csv_name)
+                finally:
+                    if inner_zf is not None:
+                        inner_zf.close()
 
         except zipfile.BadZipFile:
             raise AEMOFetchError(
