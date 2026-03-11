@@ -19,11 +19,11 @@ AEMO_READ_TIMEOUT = 60
 ANALYTICS_TOKEN = os.environ.get("ANALYTICS_TOKEN", "changeme")
 ANALYTICS_DB_PATH = "/tmp/analytics.db"
 
-# Columns to keep from the raw CSV
+# Columns to keep from the raw CSV (unit identifier used only for filtering,
+# not included in output)
 REQUIRED_COLUMNS = [
     "INTERVAL_DATETIME",
     "MEASUREMENT_DATETIME",
-    "FPP_UNITID",
     "MEASURED_MW",
     "MW_QUALITY_FLAG",
 ]
