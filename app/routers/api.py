@@ -96,7 +96,7 @@ async def get_data(
         csv_bytes, csv_next = await _fetch_day_pair(target_date, duid)
         df = filter_and_process(csv_bytes, duid, target_date, csv_next)
         summary = compute_summary(df)
-        records = to_json_records(df, max_rows=5000)
+        records = to_json_records(df)
         log_request(ip, duid, date, "view")
         return {
             "duid": duid,

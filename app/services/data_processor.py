@@ -174,8 +174,12 @@ def compute_summary(df: pl.DataFrame) -> dict:
 
 
 def to_csv_bytes(df: pl.DataFrame) -> bytes:
-    """Serialize DataFrame to CSV bytes."""
-    return df.write_csv().encode("utf-8")
+    """Serialize DataFrame to CSV bytes with space-separated datetimes (no T)."""
+    out = df.with_columns([
+        pl.col("INTERVAL_DATETIME").dt.strftime("%Y-%m-%d %H:%M:%S"),
+        pl.col("MEASUREMENT_DATETIME").dt.strftime("%Y-%m-%d %H:%M:%S"),
+    ])
+    return out.write_csv().encode("utf-8")
 
 
 def to_parquet_bytes(df: pl.DataFrame) -> bytes:
@@ -185,10 +189,12 @@ def to_parquet_bytes(df: pl.DataFrame) -> bytes:
     return buf.getvalue()
 
 
-def to_json_records(df: pl.DataFrame, max_rows: int = 5000) -> list[dict]:
+def to_json_records(df: pl.DataFrame, max_rows: int = 25_000) -> list[dict]:
     """
     Return data as a list of dicts for JSON response.
     Datetimes formatted as 'YYYY-MM-DD HH:MM:SS' (no T, no microseconds).
+    Default cap of 25 000 rows covers a full 24-hour NEM day at 4-second
+    resolution (21 600 rows) with headroom.
     """
     display_df = df.head(max_rows).with_columns([
         pl.col("INTERVAL_DATETIME").dt.strftime("%Y-%m-%d %H:%M:%S"),
