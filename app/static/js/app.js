@@ -12,6 +12,7 @@ let currentDuid = null;
 let currentDate = null;
 
 /* ── DOM refs ── */
+const loadingMsg = document.getElementById('loading-msg');
 const selState   = document.getElementById('sel-state');
 const selBess    = document.getElementById('sel-bess');
 const inpDate    = document.getElementById('inp-date');
@@ -107,6 +108,17 @@ async function onLoad() {
 
   hideError();
   hideResults();
+
+  // Give a realistic wait-time estimate based on how the NEMWEB archive is structured.
+  // Files from 11 Jan 2026 onward are served as individual daily ZIPs (~2–3 min).
+  // Older dates are packed in large monthly/quarterly archives (~5–10 min or more).
+  const RECENT_CUTOFF = '2026-01-11';
+  if (date >= RECENT_CUTOFF) {
+    loadingMsg.textContent = 'Fetching data from AEMO NEMWEB… this typically takes 2–3 minutes. Please wait.';
+  } else {
+    loadingMsg.textContent = 'Fetching data from AEMO NEMWEB… older dates are stored in large archive files and may take 5–10 minutes or more. Please wait.';
+  }
+
   showLoading(true);
   setFormLocked(true);
 

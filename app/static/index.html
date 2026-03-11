@@ -62,7 +62,7 @@
   <div id="loading-box" class="hidden">
     <div class="spinner-wrap">
       <div class="spinner"></div>
-      <p>Fetching data from AEMO NEMWEB… this may take 10–20 seconds for large files.</p>
+      <p id="loading-msg">Fetching data from AEMO NEMWEB…</p>
     </div>
   </div>
 
@@ -140,13 +140,23 @@
 </main>
 
 <footer>
-  SCADA data: <a href="https://www.nemweb.com.au/REPORTS/Current/FPPDAILY/" target="_blank">AEMO NEMWEB FPPDAILY</a>
-  &nbsp;|&nbsp;
-  BESS list: <a href="https://www.aemo.com.au/energy-systems/electricity/national-electricity-market-nem/planning_and_forecasting/generation-information" target="_blank">AEMO NEM Generation Information</a>
-  &nbsp;|&nbsp;
-  Measurement scheme: <a href="https://aemo.com.au/initiatives/major-programs/frequency-performance-payments-project" target="_blank">AEMO Frequency Performance Payments (FPP)</a>
-  &nbsp;|&nbsp;
-  Not affiliated with AEMO.
+  <div>
+    SCADA data: <a href="https://www.nemweb.com.au/REPORTS/Current/FPPDAILY/" target="_blank">AEMO NEMWEB FPPDAILY</a>
+    &nbsp;|&nbsp;
+    BESS list: <a href="https://www.aemo.com.au/energy-systems/electricity/national-electricity-market-nem/planning_and_forecasting/generation-information" target="_blank">AEMO NEM Generation Information</a>
+    &nbsp;|&nbsp;
+    Measurement scheme: <a href="https://aemo.com.au/initiatives/major-programs/frequency-performance-payments-project" target="_blank">AEMO Frequency Performance Payments (FPP)</a>
+    &nbsp;|&nbsp;
+    Not affiliated with AEMO.
+  </div>
+  <div style="margin-top:0.6rem">
+    This tool is provided for informational and research purposes only. Data is retrieved as-is from
+    AEMO NEMWEB and is subject to change, correction, or unavailability without notice. No warranty —
+    express or implied — is made regarding the accuracy, completeness, timeliness, or fitness for any
+    particular purpose of the data presented. The authors accept no liability for any loss, damage, or
+    decision made in reliance on this information. Always verify critical data directly with
+    <a href="https://www.aemo.com.au" target="_blank" rel="noopener">AEMO</a>.
+  </div>
 </footer>
 
 <script src="/static/js/app.js"></script>
