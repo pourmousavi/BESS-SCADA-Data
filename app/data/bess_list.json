@@ -1,0 +1,32 @@
+{
+  "NSW": [
+    {"duid": "NESBESS1", "name": "New England BESS 1", "capacity_mw": 126, "region": "NSW1"},
+    {"duid": "NESBESS2", "name": "New England BESS 2", "capacity_mw": 126, "region": "NSW1"},
+    {"duid": "WARATAHSF1", "name": "Waratah Super Battery 1", "capacity_mw": 850, "region": "NSW1"},
+    {"duid": "ERARINGSF1", "name": "Eraring Battery 1", "capacity_mw": 460, "region": "NSW1"},
+    {"duid": "LMOBESS1", "name": "Limondale BESS", "capacity_mw": 50, "region": "NSW1"}
+  ],
+  "VIC": [
+    {"duid": "BNGSF2", "name": "Big Battery (Victorian Big Battery)", "capacity_mw": 300, "region": "VIC1"},
+    {"duid": "RANGEBANKBESS1", "name": "Rangebank BESS", "capacity_mw": 200, "region": "VIC1"},
+    {"duid": "MREHABESS1", "name": "Melbourne Renewable Energy Hub BESS", "capacity_mw": 600, "region": "VIC1"},
+    {"duid": "GANNBESS1", "name": "Gannawarra BESS", "capacity_mw": 25, "region": "VIC1"},
+    {"duid": "BALLBESS1", "name": "Ballarat BESS", "capacity_mw": 30, "region": "VIC1"}
+  ],
+  "QLD": [
+    {"duid": "WDWBESS1", "name": "Western Downs BESS", "capacity_mw": 255, "region": "QLD1"},
+    {"duid": "GRNBKBESS1", "name": "Greenbank BESS", "capacity_mw": 200, "region": "QLD1"},
+    {"duid": "TRNBESS1", "name": "Tarong BESS", "capacity_mw": 300, "region": "QLD1"},
+    {"duid": "SWANBESS1", "name": "Swanbank BESS", "capacity_mw": 250, "region": "QLD1"},
+    {"duid": "WANDBESS1", "name": "Wandoan South BESS", "capacity_mw": 100, "region": "QLD1"}
+  ],
+  "SA": [
+    {"duid": "HORNSDALE_PWR1", "name": "Hornsdale Power Reserve 1", "capacity_mw": 100, "region": "SA1"},
+    {"duid": "HORNSDALE_PWR2", "name": "Hornsdale Power Reserve 2", "capacity_mw": 100, "region": "SA1"},
+    {"duid": "HORNSDALE_PWR3", "name": "Hornsdale Power Reserve 3", "capacity_mw": 50, "region": "SA1"},
+    {"duid": "BLYTHBESS1", "name": "Blyth BESS", "capacity_mw": 200, "region": "SA1"},
+    {"duid": "DALRYMPLE1", "name": "Dalrymple BESS", "capacity_mw": 30, "region": "SA1"},
+    {"duid": "OSBORNE1", "name": "Osborne BESS", "capacity_mw": 50, "region": "SA1"}
+  ],
+  "TAS": []
+}

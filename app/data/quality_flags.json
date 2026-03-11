@@ -1,0 +1,22 @@
+{
+  "0": {
+    "label": "Good",
+    "description": "Good quality measurement",
+    "color": "#22c55e"
+  },
+  "1": {
+    "label": "Suspect",
+    "description": "Suspect quality — possible communication issue or manual override",
+    "color": "#f97316"
+  },
+  "2": {
+    "label": "Bad",
+    "description": "Bad quality — sustained communication failure or substituted value",
+    "color": "#ef4444"
+  },
+  "-1": {
+    "label": "N/A",
+    "description": "Not applicable",
+    "color": "#94a3b8"
+  }
+}

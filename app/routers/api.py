@@ -1,0 +1,157 @@
+"""
+REST API endpoints for BESS SCADA data.
+"""
+import json
+from datetime import date, datetime
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import Response
+
+from app.config import ANALYTICS_TOKEN, DATA_START_DATE, MAX_DAYS_PER_REQUEST
+from app.services.aemo_fetcher import AEMOFetchError, fetch_csv_for_date
+from app.services.analytics import get_stats, log_request
+from app.services.data_processor import (
+    DataProcessingError,
+    compute_summary,
+    filter_and_process,
+    to_csv_bytes,
+    to_json_records,
+    to_parquet_bytes,
+)
+
+router = APIRouter(prefix="/api")
+
+DATA_DIR = Path(__file__).parent.parent / "data"
+
+
+def _get_ip(request: Request) -> str:
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _parse_date(date_str: str) -> date:
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+
+@router.get("/bess")
+def get_bess_list():
+    """Return BESS list grouped by state."""
+    bess_file = DATA_DIR / "bess_list.json"
+    return json.loads(bess_file.read_text())
+
+
+@router.get("/quality-flags")
+def get_quality_flags():
+    """Return MW_QUALITY_FLAG descriptions."""
+    flags_file = DATA_DIR / "quality_flags.json"
+    return json.loads(flags_file.read_text())
+
+
+@router.get("/data")
+async def get_data(
+    request: Request,
+    duid: str = Query(..., description="BESS DUID identifier"),
+    date: str = Query(..., description="Date in YYYY-MM-DD format"),
+):
+    """
+    Fetch and return filtered SCADA data as JSON (for display).
+    Returns up to 5000 rows for charting; use /download endpoints for full data.
+    """
+    target_date = _parse_date(date)
+    ip = _get_ip(request)
+
+    try:
+        csv_bytes = await fetch_csv_for_date(target_date, duid)
+        df = filter_and_process(csv_bytes, duid)
+        summary = compute_summary(df)
+        records = to_json_records(df, max_rows=5000)
+        log_request(ip, duid, date, "view")
+        return {
+            "duid": duid,
+            "date": date,
+            "total_rows": len(df),
+            "displayed_rows": len(records),
+            "summary": summary,
+            "data": records,
+        }
+    except AEMOFetchError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except DataProcessingError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/download/csv")
+async def download_csv(
+    request: Request,
+    duid: str = Query(...),
+    date: str = Query(...),
+):
+    """Download full filtered data as CSV."""
+    target_date = _parse_date(date)
+    ip = _get_ip(request)
+
+    try:
+        csv_bytes = await fetch_csv_for_date(target_date, duid)
+        df = filter_and_process(csv_bytes, duid)
+        output = to_csv_bytes(df)
+        log_request(ip, duid, date, "download_csv")
+        filename = f"BESS_SCADA_{duid}_{date}.csv"
+        return Response(
+            content=output,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except AEMOFetchError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except DataProcessingError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/download/parquet")
+async def download_parquet(
+    request: Request,
+    duid: str = Query(...),
+    date: str = Query(...),
+):
+    """Download full filtered data as Parquet."""
+    target_date = _parse_date(date)
+    ip = _get_ip(request)
+
+    try:
+        csv_bytes = await fetch_csv_for_date(target_date, duid)
+        df = filter_and_process(csv_bytes, duid)
+        output = to_parquet_bytes(df)
+        log_request(ip, duid, date, "download_parquet")
+        filename = f"BESS_SCADA_{duid}_{date}.parquet"
+        return Response(
+            content=output,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except AEMOFetchError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except DataProcessingError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/analytics")
+def analytics(token: str = Query(...)):
+    """Admin-only analytics endpoint."""
+    if token != ANALYTICS_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid token.")
+    return get_stats()
+
+
+@router.get("/info")
+def info():
+    """Return app metadata for the frontend."""
+    return {
+        "data_start_date": DATA_START_DATE.isoformat(),
+        "max_days_per_request": MAX_DAYS_PER_REQUEST,
+    }
