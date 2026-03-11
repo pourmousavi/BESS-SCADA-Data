@@ -186,12 +186,15 @@ def compute_summary(df: pl.DataFrame) -> dict:
             "pct": round(100 * count / total, 1) if total > 0 else 0,
         }
 
+    def _safe(val) -> float | None:
+        return round(float(val), 3) if val is not None else None
+
     return {
         "total_rows": total,
-        "min_mw": round(float(mw.min()), 3) if len(mw) > 0 else None,
-        "max_mw": round(float(mw.max()), 3) if len(mw) > 0 else None,
-        "mean_mw": round(float(mw.mean()), 3) if len(mw) > 0 else None,
-        "std_mw": round(float(mw.std()), 3) if len(mw) > 0 else None,
+        "min_mw":  _safe(mw.min()  if len(mw) > 0 else None),
+        "max_mw":  _safe(mw.max()  if len(mw) > 0 else None),
+        "mean_mw": _safe(mw.mean() if len(mw) > 0 else None),
+        "std_mw":  _safe(mw.std()  if len(mw) > 0 else None),
         "flag_breakdown": flag_breakdown,
     }
 
