@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NEM Battery SCADA Data Explorer</title>
+  <title>NEM Battery SCADA &amp; Energy Data Explorer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/style.css" />
@@ -14,8 +14,8 @@
 <!-- ── Header ── -->
 <header>
   <div>
-    <h1>🔋 NEM Battery SCADA Data Explorer</h1>
-    <p>4-second SCADA data for Battery Energy Storage Systems in Australia's National Electricity Market</p>
+    <h1>🔋 NEM Battery SCADA &amp; Energy Data Explorer</h1>
+    <p>4-second SCADA power output and 5-minute dispatch energy storage data for BESS units in Australia's NEM</p>
   </div>
 </header>
 
@@ -46,6 +46,20 @@
       </div>
 
       <div class="form-group">
+        <label>Data Types</label>
+        <div class="data-type-group">
+          <label class="check-label">
+            <input type="checkbox" id="chk-scada" checked />
+            4-second SCADA <span class="check-sub">(Power, MW)</span>
+          </label>
+          <label class="check-label">
+            <input type="checkbox" id="chk-energy" checked />
+            5-minute Dispatch <span class="check-sub">(Energy, MWh)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group">
         <label>&nbsp;</label>
         <button class="btn btn-primary" id="btn-load" disabled>Load Data</button>
       </div>
@@ -69,69 +83,89 @@
   <!-- ── Results ── -->
   <div id="results-box" class="hidden">
 
-    <!-- Summary stats -->
-    <section class="panel">
-      <h2>Summary Statistics</h2>
-      <div id="stats-grid" class="stats-grid"></div>
+    <!-- ── SCADA section ── -->
+    <div id="scada-results" class="hidden">
 
-      <h2 style="margin-bottom:0.6rem">Data Quality</h2>
-      <div id="quality-strip" class="quality-strip"></div>
-      <p style="font-size:0.78rem;color:var(--text-muted)">
-        Quality flags are sourced directly from the AEMO FPP dataset.
-        <strong style="color:var(--good)">Good (0)</strong> = reliable measurement;
-        <strong style="color:var(--suspect)">Suspect (1)</strong> = possible communication issue;
-        <strong style="color:var(--bad)">Bad (2)</strong> = sustained failure or substituted value.
-      </p>
-    </section>
+      <section class="panel">
+        <h2>SCADA — Summary Statistics</h2>
+        <div id="stats-grid" class="stats-grid"></div>
+        <h2 style="margin-bottom:0.6rem">Data Quality</h2>
+        <div id="quality-strip" class="quality-strip"></div>
+        <p style="font-size:0.78rem;color:var(--text-muted)">
+          Quality flags are sourced directly from the AEMO FPP dataset.
+          <strong style="color:var(--good)">Good (0)</strong> = reliable measurement;
+          <strong style="color:var(--suspect)">Suspect (1)</strong> = possible communication issue;
+          <strong style="color:var(--bad)">Bad (2)</strong> = sustained failure or substituted value.
+        </p>
+      </section>
 
-    <!-- Chart -->
-    <section class="panel">
-      <h2>Power Output Over Time</h2>
-      <div id="chart-container"></div>
-    </section>
+      <section class="panel">
+        <h2>4-Second Power Output (MW)</h2>
+        <div id="scada-chart-container"></div>
+      </section>
 
-    <!-- Download + table -->
-    <section class="panel">
-      <h2>Download Full Dataset</h2>
-      <div class="download-bar" style="margin-bottom:1.25rem">
-        <span>Download all rows for the selected BESS and date:</span>
-        <a id="btn-csv"     class="btn btn-outline" href="#" download>⬇ CSV</a>
-        <a id="btn-parquet" class="btn btn-outline" href="#" download>⬇ Parquet</a>
-      </div>
-      <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:1.25rem">
-        <strong>Parquet</strong> is recommended for Python users — it is 5–10× smaller than CSV and
-        loads natively with <code>pandas.read_parquet()</code> or <code>polars.read_parquet()</code>.
-      </p>
+      <section class="panel">
+        <h2>Download SCADA Dataset</h2>
+        <div class="download-bar" style="margin-bottom:0.75rem">
+          <span>4-second SCADA data for the selected BESS and date:</span>
+          <a id="btn-csv"     class="btn btn-outline" href="#" download>⬇ CSV</a>
+          <a id="btn-parquet" class="btn btn-outline" href="#" download>⬇ Parquet</a>
+        </div>
+        <p style="font-size:0.78rem;color:var(--text-muted)">
+          <strong>Parquet</strong> is recommended for Python users — 5–10× smaller than CSV,
+          loads natively with <code>pandas.read_parquet()</code> or <code>polars.read_parquet()</code>.
+        </p>
+      </section>
 
-      <h2 style="margin-bottom:0.6rem">Data Preview</h2>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Measurement Time</th>
-              <th>Market Interval</th>
-              <th>Measured MW</th>
-              <th>Quality Flag</th>
-            </tr>
-          </thead>
-          <tbody id="table-body"></tbody>
-        </table>
-      </div>
-      <p id="table-note" class="table-note hidden"></p>
-    </section>
+    </div><!-- /scada-results -->
 
-  </div><!-- /results -->
+    <!-- ── Energy section ── -->
+    <div id="energy-results" class="hidden">
+
+      <section class="panel">
+        <h2>Dispatch Energy — Summary Statistics</h2>
+        <div id="energy-stats-grid" class="stats-grid"></div>
+      </section>
+
+      <section class="panel">
+        <h2>5-Minute Initial Energy Storage (MWh) &amp; Dispatch MW</h2>
+        <div id="energy-chart-container"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Download Energy Dataset</h2>
+        <div class="download-bar" style="margin-bottom:0.75rem">
+          <span>5-minute dispatch energy data for the selected BESS and date:</span>
+          <a id="btn-energy-csv"     class="btn btn-outline" href="#" download>⬇ CSV</a>
+          <a id="btn-energy-parquet" class="btn btn-outline" href="#" download>⬇ Parquet</a>
+        </div>
+        <p style="font-size:0.78rem;color:var(--text-muted)">
+          Columns: <code>SETTLEMENTDATE</code>, <code>INITIALMW</code>,
+          <code>INITIAL_ENERGY_STORAGE</code>, <code>ENERGY_STORAGE</code>.
+          <strong>Parquet</strong> recommended for programmatic use.
+        </p>
+      </section>
+
+    </div><!-- /energy-results -->
+
+  </div><!-- /results-box -->
 
   <!-- ── Info ── -->
   <section class="panel">
     <h2>About This App</h2>
     <p style="font-size:0.875rem;color:var(--text-muted);line-height:1.7">
-      This tool provides access to 4-second SCADA data published by the
+      This tool provides access to two datasets published by the
       <a href="https://www.aemo.com.au" target="_blank" rel="noopener">Australian Energy Market Operator (AEMO)</a>
-      via the <a href="https://www.nemweb.com.au/REPORTS/Current/FPPDAILY/" target="_blank" rel="noopener">NEMWEB FPPDAILY</a>
-      report. Data is available from <strong>9 December 2024</strong> when the
+      via NEMWEB:<br/><br/>
+      <strong>4-second SCADA data</strong> — from
+      <a href="https://www.nemweb.com.au/REPORTS/Current/FPPDAILY/" target="_blank" rel="noopener">NEMWEB FPPDAILY</a>,
+      available from <strong>28 February 2025</strong> when the
       <a href="https://aemo.com.au/initiatives/major-programs/frequency-performance-payments-project" target="_blank" rel="noopener">Frequency Performance Payments (FPP)</a>
       scheme commenced non-financial operation.<br/><br/>
+      <strong>5-minute dispatch energy data</strong> — from
+      <a href="https://nemweb.com.au/Reports/Current/Next_Day_Dispatch/" target="_blank" rel="noopener">NEMWEB Next_Day_Dispatch</a>,
+      available from <strong>11 February 2025</strong>. Provides initial energy storage (MWh)
+      and initial MW dispatch for each 5-minute interval.<br/><br/>
       Data is fetched live from AEMO on each request — no data is stored on this server.
       Maximum request window: <strong>1 day</strong> per query.
     </p>
@@ -143,9 +177,9 @@
   <div>
     SCADA data: <a href="https://www.nemweb.com.au/REPORTS/Current/FPPDAILY/" target="_blank">AEMO NEMWEB FPPDAILY</a>
     &nbsp;|&nbsp;
-    BESS list: <a href="https://www.aemo.com.au/energy-systems/electricity/national-electricity-market-nem/planning_and_forecasting/generation-information" target="_blank">AEMO NEM Generation Information</a>
+    Energy data: <a href="https://nemweb.com.au/Reports/Current/Next_Day_Dispatch/" target="_blank">AEMO Next_Day_Dispatch</a>
     &nbsp;|&nbsp;
-    Measurement scheme: <a href="https://aemo.com.au/initiatives/major-programs/frequency-performance-payments-project" target="_blank">AEMO Frequency Performance Payments (FPP)</a>
+    BESS list: <a href="https://www.aemo.com.au/energy-systems/electricity/national-electricity-market-nem/planning_and_forecasting/generation-information" target="_blank">AEMO NEM Generation Information</a>
     &nbsp;|&nbsp;
     Not affiliated with AEMO.
   </div>

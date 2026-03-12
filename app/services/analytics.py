@@ -9,8 +9,18 @@ from app.config import (
     ANALYTICS_DB_PATH,
     TIMING_DEFAULT_ARCHIVE_SEC,
     TIMING_DEFAULT_CURRENT_SEC,
+    TIMING_DEFAULT_DISPATCH_ARCHIVE_SEC,
+    TIMING_DEFAULT_DISPATCH_CURRENT_SEC,
     TIMING_MIN_SAMPLES,
 )
+
+# Default timing (seconds) keyed by source_type string
+_TIMING_DEFAULTS: dict[str, int] = {
+    "current":          TIMING_DEFAULT_CURRENT_SEC,
+    "archive":          TIMING_DEFAULT_ARCHIVE_SEC,
+    "dispatch_current": TIMING_DEFAULT_DISPATCH_CURRENT_SEC,
+    "dispatch_archive": TIMING_DEFAULT_DISPATCH_ARCHIVE_SEC,
+}
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -61,8 +71,10 @@ def log_request(
                     (timestamp, ip, duid, date, action, duration_ms, source_type)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (datetime.utcnow().isoformat(), ip, duid, date, action,
-                 duration_ms, source_type),
+                (
+                    datetime.utcnow().isoformat(),
+                    ip, duid, date, action, duration_ms, source_type,
+                ),
             )
             conn.commit()
     except Exception:
@@ -71,18 +83,16 @@ def log_request(
 
 def get_timing_estimate(source_type: str) -> dict:
     """
-    Return a p75 wait-time estimate in seconds for the given source_type
-    ('current' or 'archive'), derived from the last 100 successful view
-    requests that recorded a duration.
+    Return a p75 wait-time estimate in seconds for the given source_type.
 
-    Falls back to a hardcoded default when fewer than TIMING_MIN_SAMPLES
-    records are available.
+    source_type is one of: 'current', 'archive',
+                           'dispatch_current', 'dispatch_archive'.
+
+    Derived from the last 100 successful view requests that recorded a
+    duration for this source type.  Falls back to the hardcoded default
+    until at least TIMING_MIN_SAMPLES records are available.
     """
-    default_sec = (
-        TIMING_DEFAULT_CURRENT_SEC
-        if source_type == "current"
-        else TIMING_DEFAULT_ARCHIVE_SEC
-    )
+    default_sec = _TIMING_DEFAULTS.get(source_type, TIMING_DEFAULT_CURRENT_SEC)
     try:
         with _get_conn() as conn:
             rows = conn.execute(
@@ -133,10 +143,10 @@ def get_stats() -> dict:
 
         return {
             "total_requests": total,
-            "by_action": [dict(r) for r in by_action],
-            "by_duid": [dict(r) for r in by_duid],
-            "by_ip": [dict(r) for r in by_ip],
-            "recent": [dict(r) for r in recent],
+            "by_action":      [dict(r) for r in by_action],
+            "by_duid":        [dict(r) for r in by_duid],
+            "by_ip":          [dict(r) for r in by_ip],
+            "recent":         [dict(r) for r in recent],
         }
     except Exception as e:
         return {"error": str(e)}
