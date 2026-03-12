@@ -269,6 +269,141 @@ select:disabled, input:disabled {
   flex-shrink: 0;
 }
 
+/* ── Info icon with tooltip ── */
+.info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  font-weight: 700;
+  font-style: normal;
+  cursor: help;
+  position: relative;
+  vertical-align: middle;
+  margin-left: 0.2rem;
+  flex-shrink: 0;
+  line-height: 1;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.info-icon:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Tooltip bubble — appears above by default */
+.info-icon::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.75rem;
+  font-size: 0.775rem;
+  font-weight: 400;
+  color: var(--text);
+  white-space: normal;
+  width: 270px;
+  z-index: 200;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  line-height: 1.55;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  text-align: left;
+}
+
+.info-icon:hover::after { opacity: 1; }
+
+/* Variant: tooltip appears below (use for icons near the top of the page) */
+.info-icon.tip-below::after {
+  bottom: auto;
+  top: calc(100% + 7px);
+}
+
+/* ── Collapsible dataset info (Option 2) ── */
+.dataset-info {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.02);
+  margin-bottom: 1.25rem;
+}
+
+.dataset-info > summary {
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+/* Hide default browser disclosure triangle */
+.dataset-info > summary::-webkit-details-marker { display: none; }
+.dataset-info > summary::marker               { display: none; }
+
+.dataset-info > summary::before {
+  content: '▶';
+  font-size: 0.6rem;
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+
+.dataset-info[open] > summary::before { transform: rotate(90deg); }
+.dataset-info[open] > summary         { color: var(--text); border-bottom: 1px solid var(--border); }
+.dataset-info > summary:hover         { color: var(--accent); }
+
+.dataset-info-body {
+  padding: 0.85rem 1rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.65;
+}
+
+.dataset-info-body > p { margin-bottom: 0.85rem; }
+
+/* Column definition list inside the collapsible */
+.col-defs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.col-def {
+  display: grid;
+  grid-template-columns: 14rem 1fr;
+  gap: 0.4rem 0.75rem;
+  align-items: baseline;
+}
+
+.col-name {
+  font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace;
+  font-size: 0.8rem;
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.col-desc { color: var(--text-muted); }
+
+@media (max-width: 700px) {
+  .col-def { grid-template-columns: 1fr; gap: 0.15rem; }
+}
+
 /* ── Charts ── */
 #scada-chart-container,
 #energy-chart-container {

@@ -55,6 +55,7 @@
           <label class="check-label">
             <input type="checkbox" id="chk-energy" checked />
             5-minute Dispatch <span class="check-sub">(Energy, MWh)</span>
+            <span class="info-icon tip-below" data-tip="INITIALMW, INITIAL_ENERGY_STORAGE and ENERGY_STORAGE from AEMO's DISPATCH_UNIT_SOLUTION table. Available from 11 Feb 2025.">ⓘ</span>
           </label>
         </div>
       </div>
@@ -124,6 +125,35 @@
 
       <section class="panel">
         <h2>Dispatch Energy — Summary Statistics</h2>
+
+        <details class="dataset-info">
+          <summary>About this dataset — DISPATCH_UNIT_SOLUTION</summary>
+          <div class="dataset-info-body">
+            <p>
+              Extracted from AEMO's <strong>DISPATCH_UNIT_SOLUTION</strong> table and published
+              the following day via NEMWEB. Data is fetched live from:
+              <a href="https://nemweb.com.au/Reports/Current/Next_Day_Dispatch/" target="_blank" rel="noopener">Current directory</a>
+              (individual daily files, 11 Feb 2025 – yesterday) or the
+              <a href="https://www.nemweb.com.au/REPORTS/ARCHIVE/Next_Day_Dispatch/" target="_blank" rel="noopener">Archive directory</a>
+              (monthly bundles for older dates, accessed via HTTP Range requests).
+            </p>
+            <div class="col-defs">
+              <div class="col-def">
+                <span class="col-name">INITIALMW</span>
+                <span class="col-desc">Actual power output (MW) at the exact start of the 5-minute dispatch interval. Used as the baseline for the next dispatch instruction.</span>
+              </div>
+              <div class="col-def">
+                <span class="col-name">INITIAL_ENERGY_STORAGE</span>
+                <span class="col-desc">State of Energy (SoE) at the start of the interval (MWh). Represents how much energy was physically available in the battery before the current interval's dispatch began.</span>
+              </div>
+              <div class="col-def">
+                <span class="col-name">ENERGY_STORAGE</span>
+                <span class="col-desc">Target or projected energy level at the end of the interval (MWh). Accounts for the expected charging or discharging activity scheduled during that 5-minute block.</span>
+              </div>
+            </div>
+          </div>
+        </details>
+
         <div id="energy-stats-grid" class="stats-grid"></div>
       </section>
 
@@ -140,8 +170,10 @@
           <a id="btn-energy-parquet" class="btn btn-outline" href="#" download>⬇ Parquet</a>
         </div>
         <p style="font-size:0.78rem;color:var(--text-muted)">
-          Columns: <code>SETTLEMENTDATE</code>, <code>INITIALMW</code>,
-          <code>INITIAL_ENERGY_STORAGE</code>, <code>ENERGY_STORAGE</code>.
+          Columns: <code>SETTLEMENTDATE</code>,
+          <code>INITIALMW</code><span class="info-icon" data-tip="Actual MW output at interval start. Used as the dispatch baseline.">ⓘ</span>,
+          <code>INITIAL_ENERGY_STORAGE</code><span class="info-icon" data-tip="State of Energy (SoE) at interval start (MWh) — energy physically available in the battery before dispatch began.">ⓘ</span>,
+          <code>ENERGY_STORAGE</code><span class="info-icon" data-tip="Target energy level at interval end (MWh) — accounts for scheduled charging or discharging during the 5-minute block.">ⓘ</span>.
           <strong>Parquet</strong> recommended for programmatic use.
         </p>
       </section>
