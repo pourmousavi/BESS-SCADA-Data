@@ -3,6 +3,7 @@ REST API endpoints for BESS SCADA data.
 """
 import json
 import logging
+import time
 from datetime import date, datetime
 from pathlib import Path
 
@@ -11,9 +12,14 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
-from app.config import ANALYTICS_TOKEN, DATA_START_DATE, MAX_DAYS_PER_REQUEST
+from app.config import (
+    ANALYTICS_TOKEN,
+    DATA_START_DATE,
+    FPPMW_CUTOVER_DATE,
+    MAX_DAYS_PER_REQUEST,
+)
 from app.services.aemo_fetcher import AEMOFetchError, fetch_csv_for_date
-from app.services.analytics import get_stats, log_request
+from app.services.analytics import get_stats, get_timing_estimate, log_request
 from app.services.gen_info_fetcher import fetch_bess_list
 from app.services.data_processor import (
     DataProcessingError,
@@ -41,6 +47,11 @@ def _parse_date(date_str: str) -> date:
         return datetime.strptime(date_str, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+
+def _source_type(target_date: date) -> str:
+    """'current' for dates served from the Current directory, 'archive' otherwise."""
+    return "current" if target_date >= FPPMW_CUTOVER_DATE else "archive"
 
 
 @router.get("/bess")
@@ -81,13 +92,16 @@ async def get_data(
     """
     target_date = _parse_date(date)
     ip = _get_ip(request)
+    src = _source_type(target_date)
 
+    t0 = time.monotonic()
     try:
         csv_bytes = await _fetch_day_csv(target_date, duid)
         df = filter_and_process(csv_bytes, duid, target_date)
+        duration_ms = int((time.monotonic() - t0) * 1000)
         summary = compute_summary(df)
         records = to_json_records(df)
-        log_request(ip, duid, date, "view")
+        log_request(ip, duid, date, "view", duration_ms=duration_ms, source_type=src)
         return {
             "duid": duid,
             "date": date,
@@ -111,12 +125,15 @@ async def download_csv(
     """Download full filtered data as CSV."""
     target_date = _parse_date(date)
     ip = _get_ip(request)
+    src = _source_type(target_date)
 
+    t0 = time.monotonic()
     try:
         csv_bytes = await _fetch_day_csv(target_date, duid)
         df = filter_and_process(csv_bytes, duid, target_date)
+        duration_ms = int((time.monotonic() - t0) * 1000)
         output = to_csv_bytes(df)
-        log_request(ip, duid, date, "download_csv")
+        log_request(ip, duid, date, "download_csv", duration_ms=duration_ms, source_type=src)
         filename = f"BESS_SCADA_{duid}_{date}.csv"
         return Response(
             content=output,
@@ -138,12 +155,15 @@ async def download_parquet(
     """Download full filtered data as Parquet."""
     target_date = _parse_date(date)
     ip = _get_ip(request)
+    src = _source_type(target_date)
 
+    t0 = time.monotonic()
     try:
         csv_bytes = await _fetch_day_csv(target_date, duid)
         df = filter_and_process(csv_bytes, duid, target_date)
+        duration_ms = int((time.monotonic() - t0) * 1000)
         output = to_parquet_bytes(df)
-        log_request(ip, duid, date, "download_parquet")
+        log_request(ip, duid, date, "download_parquet", duration_ms=duration_ms, source_type=src)
         filename = f"BESS_SCADA_{duid}_{date}.parquet"
         return Response(
             content=output,
@@ -169,5 +189,10 @@ def info():
     """Return app metadata for the frontend."""
     return {
         "data_start_date": DATA_START_DATE.isoformat(),
+        "cutover_date": FPPMW_CUTOVER_DATE.isoformat(),
         "max_days_per_request": MAX_DAYS_PER_REQUEST,
+        "estimates": {
+            "current": get_timing_estimate("current"),
+            "archive": get_timing_estimate("archive"),
+        },
     }

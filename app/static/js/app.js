@@ -10,6 +10,11 @@ let qualityFlags = {};
 let currentData = null;
 let currentDuid = null;
 let currentDate = null;
+let cutoverDate  = '2026-01-11';   // updated from /api/info on boot
+let appEstimates = {               // updated from /api/info on boot
+  current: { seconds: 120, sample_count: 0, is_default: true },
+  archive: { seconds: 480, sample_count: 0, is_default: true },
+};
 
 /* ── DOM refs ── */
 const loadingMsg = document.getElementById('loading-msg');
@@ -36,10 +41,12 @@ async function init() {
   inpDate.value = yesterday.toISOString().slice(0, 10);
   inpDate.max   = yesterday.toISOString().slice(0, 10);
 
-  // Fetch app info for min date
+  // Fetch app info for min date, cutover date, and timing estimates
   try {
     const info = await fetch(`${API}/api/info`).then(r => r.json());
     inpDate.min = info.data_start_date;
+    if (info.cutover_date) cutoverDate = info.cutover_date;
+    if (info.estimates)    appEstimates = info.estimates;
   } catch (_) {}
 
   // Load BESS list and quality flags in parallel
@@ -92,6 +99,27 @@ function onBessChange() {
   btnLoad.disabled = !hasBess;
 }
 
+/* ── Timing estimate helpers ── */
+
+/**
+ * Format a timing estimate object into a human-readable string fragment.
+ * est = { seconds, sample_count, is_default }
+ */
+function formatEstimate(est) {
+  const sec = est.seconds || 120;
+  const suffix = est.is_default ? '' : ` (based on ${est.sample_count} recent request${est.sample_count === 1 ? '' : 's'})`;
+  let duration;
+  if (sec < 60)        duration = 'less than a minute';
+  else if (sec < 100)  duration = 'about 1 minute';
+  else if (sec < 160)  duration = 'about 2 minutes';
+  else if (sec < 220)  duration = 'about 3 minutes';
+  else if (sec < 310)  duration = 'about 4–5 minutes';
+  else if (sec < 420)  duration = 'about 6–7 minutes';
+  else if (sec < 570)  duration = 'about 8–10 minutes';
+  else                 duration = '10 minutes or more';
+  return `this typically takes ${duration}${suffix}`;
+}
+
 /* ── Load data ── */
 function setFormLocked(locked) {
   selState.disabled = locked;
@@ -109,15 +137,12 @@ async function onLoad() {
   hideError();
   hideResults();
 
-  // Give a realistic wait-time estimate based on how the NEMWEB archive is structured.
-  // Files from 11 Jan 2026 onward are served as individual daily ZIPs (~2–3 min).
-  // Older dates are packed in large monthly/quarterly archives (~5–10 min or more).
-  const RECENT_CUTOFF = '2026-01-11';
-  if (date >= RECENT_CUTOFF) {
-    loadingMsg.textContent = 'Fetching data from AEMO NEMWEB… this typically takes 2–3 minutes. Please wait.';
-  } else {
-    loadingMsg.textContent = 'Fetching data from AEMO NEMWEB… older dates are stored in large archive files and may take 5–10 minutes or more. Please wait.';
-  }
+  // Show a wait-time estimate learned from previous successful requests.
+  // The cutover date and p75 estimates are provided by /api/info on boot.
+  const srcType = date >= cutoverDate ? 'current' : 'archive';
+  const est     = appEstimates[srcType] || appEstimates.current;
+  loadingMsg.textContent =
+    `Fetching data from AEMO NEMWEB\u2026 ${formatEstimate(est)}. Please wait.`;
 
   showLoading(true);
   setFormLocked(true);
@@ -217,6 +242,7 @@ function renderChart(data) {
   });
 
   const layout = {
+    autosize: true,
     paper_bgcolor: 'transparent',
     plot_bgcolor:  'transparent',
     font: { color: '#e2e8f0', size: 11 },
