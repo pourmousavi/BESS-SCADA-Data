@@ -404,6 +404,25 @@ select:disabled, input:disabled {
   .col-def { grid-template-columns: 1fr; gap: 0.15rem; }
 }
 
+/* ── Results layout ── */
+
+/* Space between the SCADA section and the Energy section.
+   Because .hidden children are display:none they don't generate gap,
+   so there is no unwanted whitespace when only one section is visible. */
+#results-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+}
+
+/* Space between the individual panels within each section */
+#scada-results,
+#energy-results {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
 /* ── Charts ── */
 #scada-chart-container,
 #energy-chart-container {

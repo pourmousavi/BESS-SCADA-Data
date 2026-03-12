@@ -228,19 +228,23 @@ async function onLoad() {
     const base   = `${API}/api/download`;
     const params = `duid=${encodeURIComponent(duid)}&date=${date}`;
 
+    // Unhide containers BEFORE calling Plotly so it can measure the real
+    // width of each chart container.  Rendering into a display:none element
+    // causes Plotly to record zero width and never fill the available space.
+    resultsBox.classList.remove('hidden');
+
     if (scadaPayload) {
+      scadaResults.classList.remove('hidden');
       renderScadaResults(scadaPayload);
       btnCsv.href     = `${base}/csv?${params}`;
       btnParquet.href = `${base}/parquet?${params}`;
-      scadaResults.classList.remove('hidden');
     }
     if (energyPayload) {
+      energyResults.classList.remove('hidden');
       renderEnergyResults(energyPayload);
       btnEnergyCsv.href     = `${base}/energy-csv?${params}`;
       btnEnergyParquet.href = `${base}/energy-parquet?${params}`;
-      energyResults.classList.remove('hidden');
     }
-    resultsBox.classList.remove('hidden');
   }
 }
 
