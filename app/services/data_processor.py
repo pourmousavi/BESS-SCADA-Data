@@ -173,7 +173,9 @@ def filter_and_process(
 
 def compute_summary(df: pl.DataFrame) -> dict:
     """Compute summary statistics for the filtered data."""
-    mw = df["MEASURED_MW"].drop_nulls()
+    # fill_nan converts float NaN → null before drop_nulls so that NaN values
+    # (which Polars treats as distinct from null) don't silently corrupt stats.
+    mw = df["MEASURED_MW"].fill_nan(None).drop_nulls()
     flags = df["MW_QUALITY_FLAG"].value_counts().sort("MW_QUALITY_FLAG")
     total = len(df)
 
@@ -225,5 +227,7 @@ def to_json_records(df: pl.DataFrame, max_rows: int = 25_000) -> list[dict]:
     display_df = df.head(max_rows).with_columns([
         pl.col("INTERVAL_DATETIME").dt.strftime("%Y-%m-%d %H:%M:%S"),
         pl.col("MEASUREMENT_DATETIME").dt.strftime("%Y-%m-%d %H:%M:%S"),
+        # Polars float NaN is not JSON-serializable; normalise to null (→ JSON null).
+        pl.col("MEASURED_MW").fill_nan(None),
     ])
     return display_df.to_dicts()
