@@ -17,10 +17,13 @@ File naming conventions on NEMWEB:
 
       Second half (16:00–04:00 AEST next calendar day):
         PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDDHHMMSS_<seq+1>.zip
+        The YYYYMMDD embedded here is the SETTLEMENT date D, matching the
+        first half.  The full YYYYMMDDHHMMSS is the publication timestamp
+        (e.g. D=20260310 published at 07:00 UTC → 20260310070050).
 
-    Both are identified by searching for "FPPMW" AND "YYYYMMDD" in the
-    directory listing.  _find_files_in returns ALL matches; fetch_csv_for_date
-    downloads them all and concatenates their CSV bytes.
+    Both halves therefore share the settlement date string.  _find_files_in
+    captures them with a single date_str substring search.
+    fetch_csv_for_date downloads all matches and concatenates their CSV bytes.
     The data_processor applies the authoritative [04:00 AEST D, 04:00 AEST D+1)
     boundary filter.  All AEMO NEMWEB timestamps are in AEST (UTC+10),
     no daylight saving.
@@ -153,10 +156,22 @@ async def _find_files_in(
     """
     Return a list of (filename, url, kind) for every ZIP that covers target_date.
 
-    For FPPMW daily files there can be MORE THAN ONE match per date — AEMO
-    publishes each 12-hour half of the NEM market day as a separate ZIP, and
-    both halves carry the same settlement date in their filename.  Returning
-    all of them lets fetch_csv_for_date download and concatenate every half.
+    AEMO publishes each NEM market day as TWO separate outer ZIPs:
+
+      First half  (04:00–16:00 AEST):
+        PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_<seq>.zip
+
+      Second half (16:00–04:00 AEST next calendar day):
+        PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDDHHMMSS_<seq+1>.zip
+
+    Confirmed from live directory listings: the YYYYMMDD in the second-half
+    filename is the SETTLEMENT date D (same as the first half).  The full
+    YYYYMMDDHHMMSS is the publication timestamp, and its date component is D
+    (e.g. D=20260310, published at 07:00 UTC → 20260310070050).
+
+    A single substring search for date_str therefore captures BOTH halves.
+    Do NOT extend the search to D+1's date — that would accidentally match
+    the FOLLOWING day's second-half file and download a spurious third ZIP.
 
     kind values
     -----------
@@ -169,7 +184,9 @@ async def _find_files_in(
     # Only FPPMW files are used. FPP files lack MEASUREMENT_DATETIME,
     # MEASURED_MW, and MW_QUALITY_FLAG and cannot supply SCADA data.
 
-    # 1. Exact date match — ALL FPPMW files for this date (may be 2 halves).
+    # 1. Exact date match — ALL FPPMW files for this date (typically 2 halves).
+    #    Both the first-half (_YYYYMMDD_) and second-half (_2_YYYYMMDDHHMMSS_)
+    #    embed the settlement date D, so one substring check finds both.
     fppmw_exact = sorted(f for f in filenames if "FPPMW" in f and date_str in f)
     if fppmw_exact:
         logger.info("Exact match(es) at %s: %s", url, fppmw_exact)
@@ -305,38 +322,67 @@ def _extract_csv_from_zip(
 
 async def _fetch_fppmw_monthly_csv(bundle_url: str, date_str: str) -> bytes:
     """
-    Extract one day's CSV from a large FPPMW monthly archive bundle.
+    Extract one NEM market day's CSV data from a large FPPMW monthly archive bundle.
 
     Uses HTTP Range requests via remotezip so only the ZIP central directory
-    and the specific daily ZIP entry are transferred — not the full multi-GB
+    and the required daily ZIP entries are transferred — not the full multi-GB
     bundle.
 
-    Bundle structure:
-      PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD.zip          ← several GB
-        PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_XXXXXXXX.ZIP  ← daily ZIP (~MB)
+    Bundle structure (pre-11 Jan 2026 format — single inner ZIP per day):
+      PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD.zip              ← several GB
+        PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_XXXXXXXX.ZIP   ← daily ZIP (~MB)
           PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_XXXXXXXX.CSV
+
+    Bundle structure (from 11 Jan 2026 — two inner ZIPs per market day):
+      PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD.zip                      ← several GB
+        PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_XXXXXXXX.ZIP           ← first half
+          PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_XXXXXXXX.CSV
+        PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDDHHMMSS_XXXXXXXX.ZIP   ← second half
+          PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDDHHMMSS_XXXXXXXX.CSV
+
+    Both inner ZIPs embed the settlement date D (same convention as daily
+    files — confirmed from live AEMO directory listings).  A single
+    date_str substring search finds all matching inner ZIPs; ALL of them
+    are extracted and their CSVs concatenated to cover the full market day.
     """
     def _sync_extract() -> bytes:
         logger.info("Opening FPPMW monthly bundle via HTTP Range: %s", bundle_url)
         with RemoteZip(bundle_url, headers=_HEADERS) as rz:
+            all_names = rz.namelist()
             daily_zips = [
-                name for name in rz.namelist()
-                if date_str in name and name.upper().endswith(".ZIP")
+                name for name in all_names
+                if name.upper().endswith(".ZIP") and date_str in name
             ]
             if not daily_zips:
                 raise AEMOFetchError(
                     f"No entry found for {date_str} in the FPPMW monthly archive."
                 )
-            daily_zip_name = daily_zips[0]
-            logger.info("Downloading daily ZIP entry from bundle: %s", daily_zip_name)
-            daily_zip_bytes = io.BytesIO(rz.read(daily_zip_name))
+            logger.info(
+                "Downloading %d inner ZIP(s) from bundle: %s", len(daily_zips), daily_zips
+            )
 
-        with zipfile.ZipFile(daily_zip_bytes) as daily_zf:
-            csvs = sorted(n for n in daily_zf.namelist() if n.lower().endswith(".csv"))
-            if not csvs:
-                raise AEMOFetchError("Daily ZIP from monthly bundle contains no CSV.")
-            logger.info("Extracting CSV(s): %s", csvs)
-            return b"".join(daily_zf.read(name) for name in csvs)
+            all_csv_bytes: list[bytes] = []
+            for daily_zip_name in sorted(daily_zips):  # sort: first half before second
+                daily_zip_bytes = io.BytesIO(rz.read(daily_zip_name))
+                with zipfile.ZipFile(daily_zip_bytes) as daily_zf:
+                    csvs = sorted(
+                        n for n in daily_zf.namelist() if n.lower().endswith(".csv")
+                    )
+                    if not csvs:
+                        logger.warning(
+                            "Inner ZIP %s from monthly bundle contains no CSV; skipping.",
+                            daily_zip_name,
+                        )
+                        continue
+                    logger.info("Extracting CSV(s) from %s: %s", daily_zip_name, csvs)
+                    for csv_name in csvs:
+                        all_csv_bytes.append(daily_zf.read(csv_name))
+
+        if not all_csv_bytes:
+            raise AEMOFetchError(
+                "All inner ZIPs from monthly bundle contained no CSV files."
+            )
+        return b"".join(all_csv_bytes)
 
     try:
         return await asyncio.to_thread(_sync_extract)
@@ -357,14 +403,12 @@ async def fetch_csv_for_date(
     """
     Download ALL FPPDAILY files for target_date and return concatenated CSV bytes.
 
-    AEMO publishes each 12-hour half of the NEM market day as a separate ZIP
-    file, both carrying the same settlement date.  This function finds every
-    matching file and downloads them all, so the caller receives the raw bytes
-    for the entire market day before the data_processor applies its boundary
-    filter.
+    AEMO publishes each NEM market day as two separate ZIP files; both halves
+    embed the settlement date D in their filename.  _find_files_in finds ALL
+    matching files; all are downloaded and their CSV bytes concatenated.
+    The data_processor applies the [04:00 AEST D, 04:00 AEST D+1) boundary.
 
-    skip_future_check: set True when fetching D+1 as a safety-net for the
-    case where the second half is named with the next calendar date.
+    skip_future_check: set True to bypass the future-date guard.
     """
     if target_date < DATA_START_DATE:
         raise AEMOFetchError(
