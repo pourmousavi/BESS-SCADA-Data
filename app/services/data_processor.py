@@ -2,6 +2,7 @@
 Filters and transforms raw AEMO FPPDAILY CSV bytes using Polars.
 """
 import io
+import logging
 from datetime import date, datetime, time as dtime, timedelta
 
 import polars as pl
@@ -9,6 +10,8 @@ import pyarrow.parquet as pq
 import pyarrow as pa
 
 from app.config import REQUIRED_COLUMNS
+
+logger = logging.getLogger(__name__)
 
 
 class DataProcessingError(Exception):
@@ -20,18 +23,40 @@ class DataProcessingError(Exception):
 _DAY_START_HOUR = 4
 
 
+def _segment_to_df(header: list[str], data_lines: list[list[str]]) -> pl.DataFrame:
+    """Build a Polars DataFrame from one parsed AEMO CSV segment."""
+    n_cols = len(header)
+    padded = []
+    for row in data_lines:
+        if len(row) >= n_cols:
+            padded.append(row[:n_cols])
+        else:
+            padded.append(row + [""] * (n_cols - len(row)))
+    csv_content = ",".join(header) + "\n" + "\n".join(",".join(r) for r in padded)
+    return pl.read_csv(io.StringIO(csv_content), infer_schema_length=None)
+
+
 def _parse_aemo_csv(csv_bytes: bytes) -> pl.DataFrame:
     """
     AEMO CSV files have a non-standard header format:
       - "C,..." rows: comment / metadata (skipped)
       - "I,..." row:  column headers (format: I, TABLE, SUBTABLE, col1, col2, …)
       - "D,..." rows: data
+
+    When csv_bytes is the concatenation of two half-day files, there will be
+    TWO "I," lines.  The two files may have different column schemas (e.g.
+    FPPMW first-half vs. FPPMW_2 second-half formats differ).  To avoid
+    silently misaligning rows from the first file under the second file's
+    header, we treat every "I," line as the start of a new segment, parse
+    each segment independently, and then reconcile the schemas via a
+    diagonal concat (missing columns are filled with null).
     """
     text = csv_bytes.decode("utf-8", errors="replace")
     lines = text.splitlines()
 
-    header = None
-    data_lines = []
+    segments: list[tuple[list[str], list[list[str]]]] = []
+    current_header: list[str] | None = None
+    current_data: list[list[str]] = []
 
     for line in lines:
         if not line.strip():
@@ -40,27 +65,50 @@ def _parse_aemo_csv(csv_bytes: bytes) -> pl.DataFrame:
             parts = line.split(",")
             # Strip the leading "I, TABLE_NAME, SUBTABLE" — columns start at index 3
             if len(parts) > 3:
-                header = parts[3:]
+                # Flush accumulated data for the previous header before switching
+                if current_header is not None and current_data:
+                    segments.append((current_header, current_data))
+                    current_data = []
+                current_header = parts[3:]
         elif line.startswith("D,"):
             parts = line.split(",")
             if len(parts) > 3:
-                data_lines.append(parts[3:])
+                current_data.append(parts[3:])
 
-    if header is None:
-        raise DataProcessingError("Could not find column header row in CSV file.")
-    if not data_lines:
+    # Flush the final segment
+    if current_header is not None and current_data:
+        segments.append((current_header, current_data))
+
+    if not segments:
+        if current_header is None:
+            raise DataProcessingError("Could not find column header row in CSV file.")
         raise DataProcessingError("CSV file contained no data rows.")
 
-    n_cols = len(header)
-    padded = []
-    for row in data_lines:
-        if len(row) >= n_cols:
-            padded.append(row[:n_cols])
-        else:
-            padded.append(row + [""] * (n_cols - len(row)))
+    if len(segments) == 1:
+        return _segment_to_df(*segments[0])
 
-    csv_content = ",".join(header) + "\n" + "\n".join(",".join(r) for r in padded)
-    return pl.read_csv(io.StringIO(csv_content), infer_schema_length=None)
+    # Multiple segments (concatenated files): parse each independently so that
+    # each file's own column header governs its own data rows.
+    dfs = []
+    for i, (hdr, rows) in enumerate(segments):
+        logger.debug("CSV segment %d: %d columns, %d rows — %s", i, len(hdr), len(rows), hdr)
+        dfs.append(_segment_to_df(hdr, rows))
+
+    col_sets = [set(df.columns) for df in dfs]
+    if len(set(frozenset(s) for s in col_sets)) > 1:
+        logger.warning(
+            "Multi-segment CSV has differing schemas across %d segments; "
+            "using diagonal concat (missing columns filled with null). "
+            "Segment column sets: %s",
+            len(dfs),
+            [sorted(s) for s in col_sets],
+        )
+
+    try:
+        return pl.concat(dfs, how="diagonal")
+    except Exception as exc:
+        logger.warning("diagonal concat failed (%s); falling back to first segment only", exc)
+        return dfs[0]
 
 
 def _find_duid_col(df: pl.DataFrame) -> str:
@@ -115,18 +163,17 @@ def filter_and_process(
     market day regardless of what the fetched files contain.
     """
     df = _parse_and_filter_duid(csv_bytes, duid)
+    logger.info("After DUID filter (%s): %d rows", duid, len(df))
 
     if csv_bytes_next is not None:
         try:
             df_next = _parse_and_filter_duid(csv_bytes_next, duid)
+            logger.info("After DUID filter on next-day file (%s): %d rows", duid, len(df_next))
             df = pl.concat([df, df_next])
         except Exception as exc:
             # Non-fatal: proceed with partial data if next-day file is
             # unavailable or malformed.
-            import logging
-            logging.getLogger(__name__).warning(
-                "Could not merge next-day CSV; using partial data: %s", exc
-            )
+            logger.warning("Could not merge next-day CSV; using partial data: %s", exc)
 
     if df.is_empty():
         raise DataProcessingError(
@@ -146,6 +193,13 @@ def filter_and_process(
         pl.col("MW_QUALITY_FLAG").cast(pl.Int32, strict=False),
     ])
 
+    # Log how many MEASUREMENT_DATETIME values parsed successfully
+    n_parsed = df["MEASUREMENT_DATETIME"].drop_nulls().len()
+    logger.info(
+        "MEASUREMENT_DATETIME parsed: %d/%d rows (format '%%Y/%%m/%%d %%H:%%M:%%S')",
+        n_parsed, len(df),
+    )
+
     # Apply the NEM market day boundary in AEST.
     # Timestamps in the CSVs are naive AEST datetimes; we compare directly.
     day_start = datetime.combine(target_date, dtime(_DAY_START_HOUR, 0, 0))
@@ -153,6 +207,12 @@ def filter_and_process(
     df = df.filter(
         (pl.col("MEASUREMENT_DATETIME") >= day_start) &
         (pl.col("MEASUREMENT_DATETIME") <  day_end)
+    )
+    logger.info(
+        "After date-window filter [%s, %s): %d rows",
+        day_start.strftime("%Y-%m-%d %H:%M"),
+        day_end.strftime("%Y-%m-%d %H:%M"),
+        len(df),
     )
 
     if df.is_empty():
