@@ -17,12 +17,12 @@ File naming conventions on NEMWEB:
 
       Second half (16:00–04:00 AEST next calendar day):
         PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDDHHMMSS_<seq+1>.zip
-        NOTE: the YYYYMMDD embedded here is D+1 (the calendar date on which
-        the half ends at 04:00 AEST), NOT the settlement date D.
+        The YYYYMMDD embedded here is the SETTLEMENT date D, matching the
+        first half.  The full YYYYMMDDHHMMSS is the publication timestamp
+        (e.g. D=20260310 published at 07:00 UTC → 20260310070050).
 
-    _find_files_in captures both halves by searching for:
-      • files whose name contains D's date string  (→ first half), AND
-      • files whose name contains "_2_" AND D+1's date string (→ second half).
+    Both halves therefore share the settlement date string.  _find_files_in
+    captures them with a single date_str substring search.
     fetch_csv_for_date downloads all matches and concatenates their CSV bytes.
     The data_processor applies the authoritative [04:00 AEST D, 04:00 AEST D+1)
     boundary filter.  All AEMO NEMWEB timestamps are in AEST (UTC+10),
@@ -160,19 +160,18 @@ async def _find_files_in(
 
       First half  (04:00–16:00 AEST):
         PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_<seq>.zip
-        → name contains settlement date D   (always matches date_str)
 
       Second half (16:00–04:00 AEST next calendar day):
         PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDDHHMMSS_<seq+1>.zip
-        → name embeds a YYYYMMDDHHMMSS timestamp; the YYYYMMDD portion is
-          the *next* calendar date (D+1), NOT D, because the second half
-          ends at 04:00 AEST on D+1.
 
-    Because the second half carries D+1 in its filename, a naive search for
-    date_str alone would silently drop it.  We therefore extend the search
-    to also capture any file that:
-      • contains the "_2_" second-half marker, AND
-      • contains the next calendar date string (D+1).
+    Confirmed from live directory listings: the YYYYMMDD in the second-half
+    filename is the SETTLEMENT date D (same as the first half).  The full
+    YYYYMMDDHHMMSS is the publication timestamp, and its date component is D
+    (e.g. D=20260310, published at 07:00 UTC → 20260310070050).
+
+    A single substring search for date_str therefore captures BOTH halves.
+    Do NOT extend the search to D+1's date — that would accidentally match
+    the FOLLOWING day's second-half file and download a spurious third ZIP.
 
     kind values
     -----------
@@ -185,19 +184,10 @@ async def _find_files_in(
     # Only FPPMW files are used. FPP files lack MEASUREMENT_DATETIME,
     # MEASURED_MW, and MW_QUALITY_FLAG and cannot supply SCADA data.
 
-    next_date_str = _date_str(target_date + timedelta(days=1))
-
-    # 1. Exact date match — ALL FPPMW files for this date (may be 2 halves).
-    #    First half:  "FPPMW" + D's date in filename.
-    #    Second half: "FPPMW_2_" + D+1's date in filename (AEMO timestamp
-    #                 reflects the calendar day on which the half ends).
-    fppmw_exact = sorted(
-        f for f in filenames
-        if "FPPMW" in f and (
-            date_str in f                                  # first half (D date)
-            or ("FPPMW_2_" in f and next_date_str in f)   # second half (D+1 date)
-        )
-    )
+    # 1. Exact date match — ALL FPPMW files for this date (typically 2 halves).
+    #    Both the first-half (_YYYYMMDD_) and second-half (_2_YYYYMMDDHHMMSS_)
+    #    embed the settlement date D, so one substring check finds both.
+    fppmw_exact = sorted(f for f in filenames if "FPPMW" in f and date_str in f)
     if fppmw_exact:
         logger.info("Exact match(es) at %s: %s", url, fppmw_exact)
         return [(f, url, "fppmw_daily") for f in fppmw_exact]
@@ -330,9 +320,7 @@ def _extract_csv_from_zip(
         return b"".join(all_csv_bytes)
 
 
-async def _fetch_fppmw_monthly_csv(
-    bundle_url: str, date_str: str, next_date_str: str
-) -> bytes:
+async def _fetch_fppmw_monthly_csv(bundle_url: str, date_str: str) -> bytes:
     """
     Extract one NEM market day's CSV data from a large FPPMW monthly archive bundle.
 
@@ -346,15 +334,16 @@ async def _fetch_fppmw_monthly_csv(
           PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_XXXXXXXX.CSV
 
     Bundle structure (from 11 Jan 2026 — two inner ZIPs per market day):
-      PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD.zip                     ← several GB
-        PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_XXXXXXXX.ZIP          ← first half
+      PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD.zip                      ← several GB
+        PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_XXXXXXXX.ZIP           ← first half
           PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_XXXXXXXX.CSV
-        PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDD+1HHMMSS_XXXXXXXX.ZIP ← second half
-          PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDD+1HHMMSS_XXXXXXXX.CSV
+        PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDDHHMMSS_XXXXXXXX.ZIP   ← second half
+          PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDDHHMMSS_XXXXXXXX.CSV
 
-    The second-half inner ZIP is identified by the same "_2_" + D+1 date
-    logic used in _find_files_in for individual daily files.  All matching
-    inner ZIPs are downloaded and their CSVs concatenated.
+    Both inner ZIPs embed the settlement date D (same convention as daily
+    files — confirmed from live AEMO directory listings).  A single
+    date_str substring search finds all matching inner ZIPs; ALL of them
+    are extracted and their CSVs concatenated to cover the full market day.
     """
     def _sync_extract() -> bytes:
         logger.info("Opening FPPMW monthly bundle via HTTP Range: %s", bundle_url)
@@ -362,15 +351,11 @@ async def _fetch_fppmw_monthly_csv(
             all_names = rz.namelist()
             daily_zips = [
                 name for name in all_names
-                if name.upper().endswith(".ZIP") and (
-                    date_str in name                             # first half (D date)
-                    or ("FPPMW_2_" in name and next_date_str in name)  # second half (D+1 date)
-                )
+                if name.upper().endswith(".ZIP") and date_str in name
             ]
             if not daily_zips:
                 raise AEMOFetchError(
-                    f"No entry found for {date_str} (or second-half {next_date_str}) "
-                    "in the FPPMW monthly archive."
+                    f"No entry found for {date_str} in the FPPMW monthly archive."
                 )
             logger.info(
                 "Downloading %d inner ZIP(s) from bundle: %s", len(daily_zips), daily_zips
@@ -418,16 +403,12 @@ async def fetch_csv_for_date(
     """
     Download ALL FPPDAILY files for target_date and return concatenated CSV bytes.
 
-    AEMO publishes each NEM market day as two separate ZIP files:
-      • First half  (04:00–16:00 AEST): filename contains D's date.
-      • Second half (16:00–04:00 AEST): filename contains "_2_" and D+1's date.
+    AEMO publishes each NEM market day as two separate ZIP files; both halves
+    embed the settlement date D in their filename.  _find_files_in finds ALL
+    matching files; all are downloaded and their CSV bytes concatenated.
+    The data_processor applies the [04:00 AEST D, 04:00 AEST D+1) boundary.
 
-    _find_files_in captures both halves.  All matching ZIPs are downloaded
-    and their CSV bytes concatenated; the data_processor then applies the
-    authoritative [04:00 AEST D, 04:00 AEST D+1) boundary filter.
-
-    skip_future_check: set True to bypass the future-date guard (used
-    internally — the second-half file may nominally fall on tomorrow's date).
+    skip_future_check: set True to bypass the future-date guard.
     """
     if target_date < DATA_START_DATE:
         raise AEMOFetchError(
@@ -438,7 +419,6 @@ async def fetch_csv_for_date(
         raise AEMOFetchError("Cannot request data for today or future dates.")
 
     date_str = _date_str(target_date)
-    next_date_str = _date_str(target_date + timedelta(days=1))
 
     async with httpx.AsyncClient() as client:
         file_list = await _find_files(target_date, date_str, client)
@@ -449,9 +429,7 @@ async def fetch_csv_for_date(
 
             # FPPMW monthly bundles are several GB — extract via HTTP Range only.
             if kind == "fppmw_monthly":
-                csv_parts.append(
-                    await _fetch_fppmw_monthly_csv(zip_url, date_str, next_date_str)
-                )
+                csv_parts.append(await _fetch_fppmw_monthly_csv(zip_url, date_str))
                 continue
 
             # fppmw_daily: download the (daily-sized) ZIP file.
