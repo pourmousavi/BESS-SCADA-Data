@@ -49,62 +49,20 @@
         <label>Data Types</label>
         <div class="data-type-group">
 
-          <div class="check-row">
-            <div class="check-row-header">
-              <label class="check-label">
-                <input type="checkbox" id="chk-scada" checked />
-                4-second SCADA
-              </label>
-              <button class="about-toggle" data-tip="4-sec power output &amp; quality flags from AEMO FPP Daily (PUBLIC_NEXT_DAY_FPPMW). Available from 28 Feb 2025." aria-expanded="false" aria-controls="about-scada">▶ About</button>
-            </div>
-            <div class="check-about hidden" id="about-scada">
-              <p class="about-source">Source: <strong>PUBLIC_NEXT_DAY_FPPMW</strong> (FPP Daily) &nbsp;·&nbsp; Available from <strong>28 Feb 2025</strong></p>
-              <div class="col-defs">
-                <div class="col-def">
-                  <span class="col-name">INTERVAL_DATETIME</span>
-                  <span class="col-desc">Target 4-second grid slot (YYYY/MM/DD HH:MM:SS). Each measurement is snapped to the nearest standard interval.</span>
-                </div>
-                <div class="col-def">
-                  <span class="col-name">MEASUREMENT_DATETIME</span>
-                  <span class="col-desc">Actual timestamp the SCADA reading was recorded. May differ slightly from <code>INTERVAL_DATETIME</code> due to communication latency.</span>
-                </div>
-                <div class="col-def">
-                  <span class="col-name">MEASURED_MW</span>
-                  <span class="col-desc">Instantaneous power (MW). Positive = discharging (generation), negative = charging (load).</span>
-                </div>
-                <div class="col-def">
-                  <span class="col-name">MW_QUALITY_FLAG</span>
-                  <span class="col-desc">Data health code — <strong style="color:var(--good)">0</strong> Good · <strong style="color:var(--suspect)">1</strong> Substituted · <strong style="color:var(--bad)">2</strong> Bad · <strong style="color:var(--na)">3</strong> Manual Override.</span>
-                </div>
-              </div>
-            </div>
+          <div class="check-row-header" style="margin-bottom:0">
+            <label class="check-label">
+              <input type="checkbox" id="chk-scada" checked />
+              4-second SCADA
+            </label>
+            <button class="about-toggle" data-tip="4-sec power output &amp; quality flags · PUBLIC_NEXT_DAY_FPPMW · from 28 Feb 2025" data-about="scada">▶ About</button>
           </div>
 
-          <div class="check-row">
-            <div class="check-row-header">
-              <label class="check-label">
-                <input type="checkbox" id="chk-energy" checked />
-                5-minute Dispatch
-              </label>
-              <button class="about-toggle" data-tip="5-min dispatch energy storage &amp; MW from AEMO DISPATCH_UNIT_SOLUTION. Available from 11 Feb 2025." aria-expanded="false" aria-controls="about-energy">▶ About</button>
-            </div>
-            <div class="check-about hidden" id="about-energy">
-              <p class="about-source">Source: <strong>DISPATCH_UNIT_SOLUTION</strong> via Next_Day_Dispatch &nbsp;·&nbsp; Available from <strong>11 Feb 2025</strong></p>
-              <div class="col-defs">
-                <div class="col-def">
-                  <span class="col-name">INITIALMW</span>
-                  <span class="col-desc">Actual power output (MW) at the exact start of the 5-minute dispatch interval. Used as the baseline for the next dispatch instruction.</span>
-                </div>
-                <div class="col-def">
-                  <span class="col-name">INITIAL_ENERGY_STORAGE</span>
-                  <span class="col-desc">State of Energy (SoE) at interval start (MWh) — energy physically available in the battery before dispatch began.</span>
-                </div>
-                <div class="col-def">
-                  <span class="col-name">ENERGY_STORAGE</span>
-                  <span class="col-desc">Target energy level at interval end (MWh) — accounts for scheduled charging or discharging during the 5-minute block.</span>
-                </div>
-              </div>
-            </div>
+          <div class="check-row-header">
+            <label class="check-label">
+              <input type="checkbox" id="chk-energy" checked />
+              5-minute Dispatch
+            </label>
+            <button class="about-toggle" data-tip="5-min energy storage &amp; dispatch MW · DISPATCH_UNIT_SOLUTION · from 11 Feb 2025" data-about="energy">▶ About</button>
           </div>
 
         </div>
@@ -328,6 +286,17 @@
     <a href="https://www.aemo.com.au" target="_blank" rel="noopener">AEMO</a>.
   </div>
 </footer>
+
+<!-- ── About modal ── -->
+<div id="about-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 id="modal-title"></h3>
+      <button id="modal-close" class="modal-close" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
 
 <script src="/static/js/app.js"></script>
 </body>
