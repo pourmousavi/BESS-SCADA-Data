@@ -85,6 +85,17 @@ async function init() {
   chkScada.addEventListener('change', onCheckboxChange);
   chkEnergy.addEventListener('change', onCheckboxChange);
   btnLoad.addEventListener('click', onLoad);
+
+  // ▶ About toggles
+  document.querySelectorAll('.about-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const panel    = document.getElementById(btn.getAttribute('aria-controls'));
+      const expanded = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', String(!expanded));
+      panel.classList.toggle('hidden', expanded);
+      btn.textContent = expanded ? '▶ About' : '▼ About';
+    });
+  });
 }
 
 function onStateChange() {
