@@ -6,7 +6,7 @@ colorTo: green
 sdk: docker
 pinned: false
 license: mit
-short_description: Explore 4-second BESS SCADA & 5-min dispatch data from the Australian NEM
+short_description: BESS SCADA & dispatch data explorer for the NEM
 ---
 
 # 🔋 NEM Battery SCADA & Energy Data Explorer
