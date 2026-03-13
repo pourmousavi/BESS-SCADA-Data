@@ -44,7 +44,7 @@ _COL_NAME       = "Unit Name"
 _COL_TECH       = "Technology Type"
 _COL_STATUS       = "Commitment Status"
 _COL_REGION       = "Region"
-_COL_CAPACITY_MW  = "Unit Capacity (MW AC)"
+_COL_CAPACITY_MW  = "Agg Nameplate Capacity (MW AC)"
 _COL_CAPACITY_MWH = "Agg Nameplate Storage Capacity (MWh)"
 
 CACHE_TTL = timedelta(hours=24)
