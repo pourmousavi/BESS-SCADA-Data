@@ -118,8 +118,14 @@ select:disabled, input:disabled {
 .data-type-group {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.55rem;
   padding-top: 0.2rem;
+}
+
+.check-row-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .check-label {
@@ -147,11 +153,117 @@ select:disabled, input:disabled {
   cursor: not-allowed;
 }
 
-.check-sub {
-  font-size: 0.78rem;
+/* ▶ About toggle button */
+.about-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0 0.15rem;
+  position: relative;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+
+.about-toggle:hover { color: var(--accent); }
+
+/* Tooltip on the About button */
+.about-toggle::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.75rem;
   font-weight: 400;
+  color: var(--text);
+  white-space: normal;
+  width: 260px;
+  z-index: 200;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  line-height: 1.5;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  text-align: left;
+}
+
+.about-toggle:hover::after { opacity: 1; }
+
+/* ── About modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  backdrop-filter: blur(3px);
+}
+
+.modal-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-width: 660px;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+
+.modal-header h3 {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+.modal-close:hover { color: var(--text); background: var(--surface2); }
+
+.modal-body {
+  padding: 1rem 1.25rem 1.25rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.65;
+}
+
+.about-source {
+  font-size: 0.78rem;
+  margin-bottom: 0.85rem;
   color: var(--text-muted);
 }
+.about-source strong { color: var(--text); }
 
 /* ── Buttons ── */
 .btn {
@@ -415,12 +527,32 @@ select:disabled, input:disabled {
   gap: 3rem;
 }
 
-/* Space between the individual panels within each section */
+/* Panels within each section are stacked flush — no gap */
 #scada-results,
 #energy-results {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 0;
+}
+
+/* Card-group: square off inner edges, collapse duplicate borders */
+#scada-results .panel,
+#energy-results .panel {
+  border-radius: 0;
+}
+#scada-results .panel:first-child,
+#energy-results .panel:first-child {
+  border-top-left-radius: var(--radius);
+  border-top-right-radius: var(--radius);
+}
+#scada-results .panel:last-child,
+#energy-results .panel:last-child {
+  border-bottom-left-radius: var(--radius);
+  border-bottom-right-radius: var(--radius);
+}
+#scada-results .panel + .panel,
+#energy-results .panel + .panel {
+  border-top: none;
 }
 
 /* ── Charts ── */

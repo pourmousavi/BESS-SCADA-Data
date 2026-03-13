@@ -48,15 +48,23 @@
       <div class="form-group">
         <label>Data Types</label>
         <div class="data-type-group">
-          <label class="check-label">
-            <input type="checkbox" id="chk-scada" checked />
-            4-second SCADA <span class="check-sub">(Power, MW)</span>
-          </label>
-          <label class="check-label">
-            <input type="checkbox" id="chk-energy" checked />
-            5-minute Dispatch <span class="check-sub">(Energy, MWh)</span>
-            <span class="info-icon tip-below" data-tip="INITIALMW, INITIAL_ENERGY_STORAGE and ENERGY_STORAGE from AEMO's DISPATCH_UNIT_SOLUTION table. Available from 11 Feb 2025.">ⓘ</span>
-          </label>
+
+          <div class="check-row-header" style="margin-bottom:0">
+            <label class="check-label">
+              <input type="checkbox" id="chk-scada" checked />
+              4-second SCADA
+            </label>
+            <button class="about-toggle" data-tip="4-sec power output &amp; quality flags · PUBLIC_NEXT_DAY_FPPMW · from 28 Feb 2025" data-about="scada">▶ About</button>
+          </div>
+
+          <div class="check-row-header">
+            <label class="check-label">
+              <input type="checkbox" id="chk-energy" checked />
+              5-minute Dispatch
+            </label>
+            <button class="about-toggle" data-tip="5-min energy storage &amp; dispatch MW · DISPATCH_UNIT_SOLUTION · from 11 Feb 2025" data-about="energy">▶ About</button>
+          </div>
+
         </div>
       </div>
 
@@ -89,6 +97,60 @@
 
       <section class="panel">
         <h2>SCADA — Summary Statistics</h2>
+
+        <details class="dataset-info">
+          <summary>About this dataset — PUBLIC_NEXT_DAY_FPPMW</summary>
+          <div class="dataset-info-body">
+            <p>
+              In the <strong>PUBLIC_NEXT_DAY_FPPMW</strong> (FPP Daily) data files, these four
+              columns define the exact timing and status of the 4-second SCADA power measurements
+              for batteries and generators.
+            </p>
+
+            <p style="margin-bottom:0.5rem"><strong style="color:var(--text);font-size:0.85rem">Column Descriptions</strong></p>
+            <div class="col-defs">
+              <div class="col-def">
+                <span class="col-name">INTERVAL_DATETIME</span>
+                <span class="col-desc">The <strong>target timestamp</strong> for the 4-second interval. Follows the format <code>YYYY/MM/DD HH:MM:SS</code> and represents the standard grid slot (e.g., :00, :04, :08) the measurement is assigned to.</span>
+              </div>
+              <div class="col-def">
+                <span class="col-name">MEASUREMENT_DATETIME</span>
+                <span class="col-desc">The <strong>actual timestamp</strong> when the SCADA reading was recorded by AEMO's systems. May differ slightly from <code>INTERVAL_DATETIME</code> due to communication latency or jitter; AEMO snaps each reading to the nearest 4-second slot.</span>
+              </div>
+              <div class="col-def">
+                <span class="col-name">MEASURED_MW</span>
+                <span class="col-desc">The <strong>instantaneous power output</strong> of the asset in Megawatts (MW) at that specific time. For batteries, positive values denote discharging (generation) and negative values denote charging (load).</span>
+              </div>
+              <div class="col-def">
+                <span class="col-name">MW_QUALITY_FLAG</span>
+                <span class="col-desc">A <strong>numeric code</strong> indicating data health. Tells you whether <code>MEASURED_MW</code> is a live reading or a substitute inserted because the real data was missing or erroneous (see below).</span>
+              </div>
+            </div>
+
+            <p style="margin-top:1rem;margin-bottom:0.5rem"><strong style="color:var(--text);font-size:0.85rem">MW_QUALITY_FLAG Values</strong></p>
+            <p>The quality flag is critical for ensuring you aren't analysing "frozen" or "bad" data.
+            According to the <strong>AEMO FPP Factor Calculation Guide</strong>, the digits translate as follows:</p>
+            <div class="col-defs" style="margin-top:0.65rem">
+              <div class="col-def">
+                <span class="col-name" style="color:var(--good)">0 — Good</span>
+                <span class="col-desc">Data is valid and received directly from the site telemetry.</span>
+              </div>
+              <div class="col-def">
+                <span class="col-name" style="color:var(--suspect)">1 — Substituted / Estimated</span>
+                <span class="col-desc">The raw data was missing. AEMO has "held" the previous known-good value or interpolated a value to fill the gap.</span>
+              </div>
+              <div class="col-def">
+                <span class="col-name" style="color:var(--bad)">2 — Bad</span>
+                <span class="col-desc">Telemetry is flagged as bad (e.g., communication failure, hardware fault). These points are typically excluded from high-fidelity performance analysis.</span>
+              </div>
+              <div class="col-def">
+                <span class="col-name" style="color:var(--na)">3 — Manual Override</span>
+                <span class="col-desc">An AEMO operator has manually adjusted the value to correct for a known system-wide error.</span>
+              </div>
+            </div>
+          </div>
+        </details>
+
         <div id="stats-grid" class="stats-grid"></div>
         <h2 style="margin-bottom:0.6rem">Data Quality</h2>
         <div id="quality-strip" class="quality-strip"></div>
@@ -224,6 +286,17 @@
     <a href="https://www.aemo.com.au" target="_blank" rel="noopener">AEMO</a>.
   </div>
 </footer>
+
+<!-- ── About modal ── -->
+<div id="about-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 id="modal-title"></h3>
+      <button id="modal-close" class="modal-close" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
 
 <script src="/static/js/app.js"></script>
 </body>

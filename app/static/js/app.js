@@ -85,6 +85,84 @@ async function init() {
   chkScada.addEventListener('change', onCheckboxChange);
   chkEnergy.addEventListener('change', onCheckboxChange);
   btnLoad.addEventListener('click', onLoad);
+
+  // ▶ About modal
+  const aboutModal  = document.getElementById('about-modal');
+  const modalTitle  = document.getElementById('modal-title');
+  const modalBody   = document.getElementById('modal-body');
+
+  const ABOUT = {
+    scada: {
+      title: '4-second SCADA  ·  PUBLIC_NEXT_DAY_FPPMW',
+      html: `
+        <p class="about-source">
+          Source: <strong>PUBLIC_NEXT_DAY_FPPMW</strong> (FPP Daily)
+          &nbsp;·&nbsp; Available from <strong>28 Feb 2025</strong>
+        </p>
+        <div class="col-defs">
+          <div class="col-def">
+            <span class="col-name">INTERVAL_DATETIME</span>
+            <span class="col-desc">Target 4-second grid slot (YYYY/MM/DD HH:MM:SS). Each measurement is snapped to the nearest standard interval.</span>
+          </div>
+          <div class="col-def">
+            <span class="col-name">MEASUREMENT_DATETIME</span>
+            <span class="col-desc">Actual timestamp the SCADA reading was recorded. May differ slightly from <code>INTERVAL_DATETIME</code> due to communication latency.</span>
+          </div>
+          <div class="col-def">
+            <span class="col-name">MEASURED_MW</span>
+            <span class="col-desc">Instantaneous power (MW). Positive = discharging (generation), negative = charging (load).</span>
+          </div>
+          <div class="col-def">
+            <span class="col-name">MW_QUALITY_FLAG</span>
+            <span class="col-desc">Data health code — <strong style="color:var(--good)">0</strong> Good · <strong style="color:var(--suspect)">1</strong> Substituted · <strong style="color:var(--bad)">2</strong> Bad · <strong style="color:var(--na)">3</strong> Manual Override.</span>
+          </div>
+        </div>`,
+    },
+    energy: {
+      title: '5-minute Dispatch  ·  DISPATCH_UNIT_SOLUTION',
+      html: `
+        <p class="about-source">
+          Source: <strong>DISPATCH_UNIT_SOLUTION</strong> via Next_Day_Dispatch
+          &nbsp;·&nbsp; Available from <strong>11 Feb 2025</strong>
+        </p>
+        <div class="col-defs">
+          <div class="col-def">
+            <span class="col-name">INITIALMW</span>
+            <span class="col-desc">Actual power output (MW) at the exact start of the 5-minute dispatch interval. Used as the baseline for the next dispatch instruction.</span>
+          </div>
+          <div class="col-def">
+            <span class="col-name">INITIAL_ENERGY_STORAGE</span>
+            <span class="col-desc">State of Energy (SoE) at interval start (MWh) — energy physically available in the battery before dispatch began.</span>
+          </div>
+          <div class="col-def">
+            <span class="col-name">ENERGY_STORAGE</span>
+            <span class="col-desc">Target energy level at interval end (MWh) — accounts for scheduled charging or discharging during the 5-minute block.</span>
+          </div>
+        </div>`,
+    },
+  };
+
+  function openAboutModal(key) {
+    const data = ABOUT[key];
+    modalTitle.textContent = data.title;
+    modalBody.innerHTML    = data.html;
+    aboutModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeAboutModal() {
+    aboutModal.classList.add('hidden');
+    document.body.style.overflow = '';
+  }
+
+  document.querySelectorAll('.about-toggle').forEach(btn => {
+    btn.addEventListener('click', () => openAboutModal(btn.dataset.about));
+  });
+  document.getElementById('modal-close').addEventListener('click', closeAboutModal);
+  aboutModal.addEventListener('click', e => { if (e.target === aboutModal) closeAboutModal(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !aboutModal.classList.contains('hidden')) closeAboutModal();
+  });
 }
 
 function onStateChange() {
