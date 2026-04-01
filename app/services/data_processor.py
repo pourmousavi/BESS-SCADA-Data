@@ -127,9 +127,33 @@ def _find_duid_col(df: pl.DataFrame) -> str:
     )
 
 
+def _prefilter_bytes_by_duid(csv_bytes: bytes, duid: str) -> bytes:
+    """
+    Pre-filter raw AEMO CSV bytes, keeping only header/comment lines and
+    data rows that contain the target DUID.
+
+    Era 1 files are ~1 GB with 9.3M rows for ALL units.  Parsing the full
+    file into a DataFrame before filtering is extremely expensive (~6 GB
+    peak RAM).  By scanning raw bytes first we reduce to ~1-2 MB, making
+    subsequent parsing fast and lightweight.
+    """
+    duid_bytes = duid.encode("utf-8")
+    kept: list[bytes] = []
+    for line in csv_bytes.split(b"\n"):
+        if not line:
+            continue
+        if line[:2] in (b"I,", b"C,"):
+            kept.append(line)
+        elif line[:2] == b"D," and duid_bytes in line:
+            kept.append(line)
+    return b"\n".join(kept)
+
+
 def _parse_and_filter_duid(csv_bytes: bytes, duid: str) -> pl.DataFrame:
     """Parse CSV bytes, filter to the given DUID, return raw (uncast) DataFrame."""
-    df = _parse_aemo_csv(csv_bytes)
+    # Pre-filter raw bytes to drastically reduce memory for large Era 1 files
+    filtered_bytes = _prefilter_bytes_by_duid(csv_bytes, duid)
+    df = _parse_aemo_csv(filtered_bytes)
 
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
@@ -143,7 +167,7 @@ def _parse_and_filter_duid(csv_bytes: bytes, duid: str) -> pl.DataFrame:
 
 
 def filter_and_process(
-    csv_bytes: bytes,
+    csv_bytes_or_chunks: bytes | list[bytes],
     duid: str,
     target_date: date,
     csv_bytes_next: bytes | None = None,
@@ -152,34 +176,40 @@ def filter_and_process(
     Parse and filter CSV data to the requested DUID, covering exactly one NEM
     market day: 04:00 AEST on target_date → 04:00 AEST on target_date + 1 day.
 
+    csv_bytes_or_chunks can be a single bytes object or a list of byte chunks.
+    When a list is provided, each chunk is parsed and DUID-filtered independently
+    so that large files (Era 1: ~1 GB each) are never all in memory at once.
+
     AEMO NEMWEB timestamps are in AEST (UTC+10, no daylight saving).
-    The NEM market day is split into two 12-hour halves that may be packaged
-    in separate ZIP files:
-      • 04:00–16:00 AEST  → file dated D   (target_date)
-      • 16:00–04:00 AEST  → file dated D+1 (csv_bytes_next)
-
-    Both files are merged and then the strict [04:00 AEST D, 04:00 AEST D+1)
-    boundary filter is applied, so we never include data from a neighbouring
-    market day regardless of what the fetched files contain.
+    The strict [04:00 AEST D, 04:00 AEST D+1) boundary filter is applied,
+    so we never include data from a neighbouring market day.
     """
-    df = _parse_and_filter_duid(csv_bytes, duid)
-    logger.info("After DUID filter (%s): %d rows", duid, len(df))
+    # Normalise input to a list of byte chunks
+    if isinstance(csv_bytes_or_chunks, bytes):
+        chunks = [csv_bytes_or_chunks]
+        if csv_bytes_next is not None:
+            chunks.append(csv_bytes_next)
+    else:
+        chunks = csv_bytes_or_chunks
 
-    if csv_bytes_next is not None:
+    # Parse and DUID-filter each chunk independently to limit peak memory
+    dfs: list[pl.DataFrame] = []
+    for i, chunk in enumerate(chunks):
         try:
-            df_next = _parse_and_filter_duid(csv_bytes_next, duid)
-            logger.info("After DUID filter on next-day file (%s): %d rows", duid, len(df_next))
-            df = pl.concat([df, df_next])
+            df_chunk = _parse_and_filter_duid(chunk, duid)
+            logger.info("Chunk %d: %d rows after DUID filter (%s)", i, len(df_chunk), duid)
+            if not df_chunk.is_empty():
+                dfs.append(df_chunk)
         except Exception as exc:
-            # Non-fatal: proceed with partial data if next-day file is
-            # unavailable or malformed.
-            logger.warning("Could not merge next-day CSV; using partial data: %s", exc)
+            logger.warning("Could not process chunk %d; skipping: %s", i, exc)
 
-    if df.is_empty():
+    if not dfs:
         raise DataProcessingError(
             f"No data found for DUID '{duid}' on this date. "
             "This unit may not have been operational or eligible for FPP on this date."
         )
+
+    df = pl.concat(dfs) if len(dfs) > 1 else dfs[0]
 
     # Cast to proper types
     df = df.with_columns([

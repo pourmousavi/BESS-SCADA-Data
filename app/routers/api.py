@@ -103,7 +103,7 @@ async def get_data(
     t0 = time.monotonic()
     try:
         result = await _fetch_day(target_date, duid)
-        df = filter_and_process(result.csv_bytes, duid, target_date)
+        df = filter_and_process(result.csv_chunks, duid, target_date)
         duration_ms = int((time.monotonic() - t0) * 1000)
         summary = compute_summary(df)
         records = to_json_records(df)
@@ -139,7 +139,7 @@ async def download_csv(
     t0 = time.monotonic()
     try:
         result = await _fetch_day(target_date, duid)
-        df = filter_and_process(result.csv_bytes, duid, target_date)
+        df = filter_and_process(result.csv_chunks, duid, target_date)
         duration_ms = int((time.monotonic() - t0) * 1000)
         output = to_csv_bytes(df)
         log_request(ip, duid, date, "download_csv", duration_ms=duration_ms, source_type=src)
@@ -168,7 +168,7 @@ async def download_parquet(
     t0 = time.monotonic()
     try:
         result = await _fetch_day(target_date, duid)
-        df = filter_and_process(result.csv_bytes, duid, target_date)
+        df = filter_and_process(result.csv_chunks, duid, target_date)
         duration_ms = int((time.monotonic() - t0) * 1000)
         output = to_parquet_bytes(df)
         log_request(ip, duid, date, "download_parquet", duration_ms=duration_ms, source_type=src)

@@ -73,8 +73,8 @@ from app.config import (
 
 @dataclass
 class FetchResult:
-    """Result of a fetch operation: CSV bytes plus any warnings for the user."""
-    csv_bytes: bytes = b""
+    """Result of a fetch operation: CSV byte chunks plus any warnings."""
+    csv_chunks: list[bytes] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 logger = logging.getLogger(__name__)
@@ -382,9 +382,13 @@ def _extract_csv_from_zip(
 
 async def _fetch_fppmw_monthly_csv(
     bundle_url: str, search_strs: list[str]
-) -> bytes:
+) -> list[bytes]:
     """
     Extract one NEM market day's CSV data from an FPPMW archive bundle.
+
+    Returns a list of CSV byte chunks — one per inner ZIP — so that the
+    caller can process each independently without holding all data in memory
+    at once.  This is critical for Era 1 where each inner ZIP is ~1 GB.
 
     Uses HTTP Range requests via remotezip so only the ZIP central directory
     and the required daily ZIP entries are transferred — not the full bundle.
@@ -393,7 +397,7 @@ async def _fetch_fppmw_monthly_csv(
     bundle.  For Era 1 this is [D, D+1] (settlement dates); for Era 2+ it
     is [D+1] (publication date).
     """
-    def _sync_extract() -> bytes:
+    def _sync_extract() -> list[bytes]:
         logger.info("Opening FPPMW archive bundle via HTTP Range: %s", bundle_url)
         with RemoteZip(bundle_url, headers=_HEADERS) as rz:
             all_names = rz.namelist()
@@ -410,7 +414,7 @@ async def _fetch_fppmw_monthly_csv(
                 "Downloading %d inner ZIP(s) from bundle: %s", len(daily_zips), daily_zips
             )
 
-            all_csv_bytes: list[bytes] = []
+            chunks: list[bytes] = []
             for daily_zip_name in daily_zips:
                 daily_zip_bytes = io.BytesIO(rz.read(daily_zip_name))
                 with zipfile.ZipFile(daily_zip_bytes) as daily_zf:
@@ -424,14 +428,15 @@ async def _fetch_fppmw_monthly_csv(
                         )
                         continue
                     logger.info("Extracting CSV(s) from %s: %s", daily_zip_name, csvs)
-                    for csv_name in csvs:
-                        all_csv_bytes.append(daily_zf.read(csv_name))
+                    # Each inner ZIP becomes one chunk (concatenate its CSVs)
+                    chunk_parts = [daily_zf.read(csv_name) for csv_name in csvs]
+                    chunks.append(b"".join(chunk_parts))
 
-        if not all_csv_bytes:
+        if not chunks:
             raise AEMOFetchError(
                 "All inner ZIPs from monthly bundle contained no CSV files."
             )
-        return b"".join(all_csv_bytes)
+        return chunks
 
     try:
         return await asyncio.to_thread(_sync_extract)
@@ -500,8 +505,9 @@ async def fetch_csv_for_date(
 
             # FPPMW archive bundles: extract via HTTP Range using search_strs
             # to locate the target day's inner ZIP(s) within the bundle.
+            # Returns a list of chunks (one per inner ZIP) to limit memory.
             if kind == "fppmw_monthly":
-                csv_parts.append(
+                csv_parts.extend(
                     await _fetch_fppmw_monthly_csv(zip_url, search_strs)
                 )
                 continue
@@ -539,4 +545,4 @@ async def fetch_csv_for_date(
                     "Downloaded file appears to be corrupt. Please try again."
                 )
 
-        return FetchResult(csv_bytes=b"".join(csv_parts), warnings=warnings)
+        return FetchResult(csv_chunks=csv_parts, warnings=warnings)
