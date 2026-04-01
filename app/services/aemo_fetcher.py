@@ -229,8 +229,11 @@ async def _find_files_in(
         logger.info("Exact match(es) at %s: %s", url, fppmw_exact)
         return [(f, url, "fppmw_daily") for f in fppmw_exact]
 
-    # 2. Archive bundle match: find the best Format-1 and Format-2 bundle
-    #    independently.  Select latest bundle_date <= max_search_date.
+    # 2. Archive bundle match: find candidate Format-1 and Format-2 bundles.
+    #    Bundle dates don't always align with their contents (e.g. bundle
+    #    20250727 may start at inner entry 20250731), so we return multiple
+    #    candidates sorted best-first.  The caller tries each until one
+    #    contains the target date.
     f1_candidates: list[tuple[date, str]] = []
     f2_candidates: list[tuple[date, str]] = []
     for f in filenames:
@@ -247,14 +250,14 @@ async def _find_files_in(
     results: list[tuple[str, str, str]] = []
     if f1_candidates:
         f1_candidates.sort(reverse=True)
-        best_f1 = f1_candidates[0][1]
-        logger.info("Format-1 bundle match at %s: %s (search %s)", url, best_f1, search_strs)
-        results.append((best_f1, url, "fppmw_monthly"))
+        for _, bundle_name in f1_candidates[:3]:
+            logger.info("Format-1 bundle candidate at %s: %s (search %s)", url, bundle_name, search_strs)
+            results.append((bundle_name, url, "fppmw_monthly"))
     if f2_candidates:
         f2_candidates.sort(reverse=True)
-        best_f2 = f2_candidates[0][1]
-        logger.info("Format-2 bundle match at %s: %s (search %s)", url, best_f2, search_strs)
-        results.append((best_f2, url, "fppmw_monthly"))
+        for _, bundle_name in f2_candidates[:3]:
+            logger.info("Format-2 bundle candidate at %s: %s (search %s)", url, bundle_name, search_strs)
+            results.append((bundle_name, url, "fppmw_monthly"))
 
     return results
 
@@ -407,9 +410,11 @@ async def _fetch_fppmw_monthly_csv(
                 and any(s in name for s in search_strs)
             )
             if not daily_zips:
-                raise AEMOFetchError(
-                    f"No entry found for {search_strs} in the FPPMW archive bundle."
+                logger.info(
+                    "No entry for %s in bundle %s; will try next candidate.",
+                    search_strs, bundle_url.split("/")[-1],
                 )
+                return []
             logger.info(
                 "Downloading %d inner ZIP(s) from bundle: %s", len(daily_zips), daily_zips
             )
@@ -503,13 +508,14 @@ async def fetch_csv_for_date(
         for filename, found_url, kind in file_list:
             zip_url = found_url + filename
 
-            # FPPMW archive bundles: extract via HTTP Range using search_strs
-            # to locate the target day's inner ZIP(s) within the bundle.
-            # Returns a list of chunks (one per inner ZIP) to limit memory.
+            # FPPMW archive bundles: extract via HTTP Range using search_strs.
+            # Multiple candidate bundles may be returned (sorted best-first)
+            # because bundle dates don't always align with their contents.
+            # Try each until one yields data, then stop for this format.
             if kind == "fppmw_monthly":
-                csv_parts.extend(
-                    await _fetch_fppmw_monthly_csv(zip_url, search_strs)
-                )
+                chunks = await _fetch_fppmw_monthly_csv(zip_url, search_strs)
+                if chunks:
+                    csv_parts.extend(chunks)
                 continue
 
             # fppmw_daily: download the (daily-sized) ZIP file.
