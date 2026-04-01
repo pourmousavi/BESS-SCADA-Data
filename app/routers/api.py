@@ -19,7 +19,7 @@ from app.config import (
     FPPMW_CUTOVER_DATE,
     MAX_DAYS_PER_REQUEST,
 )
-from app.services.aemo_fetcher import AEMOFetchError, fetch_csv_for_date
+from app.services.aemo_fetcher import AEMOFetchError, FetchResult, fetch_csv_for_date
 from app.services.analytics import get_stats, get_timing_estimate, log_request
 from app.services.dispatch_fetcher import DispatchFetchError, fetch_dispatch_csv_for_date
 from app.services.dispatch_processor import (
@@ -85,7 +85,7 @@ def get_quality_flags():
 
 # ── SCADA data ────────────────────────────────────────────────────────────────
 
-async def _fetch_day_csv(target_date: date, duid: str) -> bytes:
+async def _fetch_day(target_date: date, duid: str) -> FetchResult:
     return await fetch_csv_for_date(target_date, duid)
 
 
@@ -102,13 +102,13 @@ async def get_data(
 
     t0 = time.monotonic()
     try:
-        csv_bytes = await _fetch_day_csv(target_date, duid)
-        df = filter_and_process(csv_bytes, duid, target_date)
+        result = await _fetch_day(target_date, duid)
+        df = filter_and_process(result.csv_bytes, duid, target_date)
         duration_ms = int((time.monotonic() - t0) * 1000)
         summary = compute_summary(df)
         records = to_json_records(df)
         log_request(ip, duid, date, "view", duration_ms=duration_ms, source_type=src)
-        return {
+        resp = {
             "duid": duid,
             "date": date,
             "total_rows": len(df),
@@ -116,6 +116,9 @@ async def get_data(
             "summary": summary,
             "data": records,
         }
+        if result.warnings:
+            resp["warnings"] = result.warnings
+        return resp
     except AEMOFetchError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except DataProcessingError as e:
@@ -135,17 +138,16 @@ async def download_csv(
 
     t0 = time.monotonic()
     try:
-        csv_bytes = await _fetch_day_csv(target_date, duid)
-        df = filter_and_process(csv_bytes, duid, target_date)
+        result = await _fetch_day(target_date, duid)
+        df = filter_and_process(result.csv_bytes, duid, target_date)
         duration_ms = int((time.monotonic() - t0) * 1000)
         output = to_csv_bytes(df)
         log_request(ip, duid, date, "download_csv", duration_ms=duration_ms, source_type=src)
         filename = f"BESS_SCADA_{duid}_{date}.csv"
-        return Response(
-            content=output,
-            media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        if result.warnings:
+            headers["X-Data-Warnings"] = "; ".join(result.warnings)
+        return Response(content=output, media_type="text/csv", headers=headers)
     except AEMOFetchError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except DataProcessingError as e:
@@ -165,17 +167,16 @@ async def download_parquet(
 
     t0 = time.monotonic()
     try:
-        csv_bytes = await _fetch_day_csv(target_date, duid)
-        df = filter_and_process(csv_bytes, duid, target_date)
+        result = await _fetch_day(target_date, duid)
+        df = filter_and_process(result.csv_bytes, duid, target_date)
         duration_ms = int((time.monotonic() - t0) * 1000)
         output = to_parquet_bytes(df)
         log_request(ip, duid, date, "download_parquet", duration_ms=duration_ms, source_type=src)
         filename = f"BESS_SCADA_{duid}_{date}.parquet"
-        return Response(
-            content=output,
-            media_type="application/octet-stream",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        if result.warnings:
+            headers["X-Data-Warnings"] = "; ".join(result.warnings)
+        return Response(content=output, media_type="application/octet-stream", headers=headers)
     except AEMOFetchError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except DataProcessingError as e:

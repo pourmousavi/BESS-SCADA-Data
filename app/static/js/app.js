@@ -349,9 +349,29 @@ async function fetchEnergy(duid, date) {
   return resp.json();
 }
 
+/* ── Warnings render ── */
+function renderWarnings(warnings) {
+  let box = document.getElementById('warnings-box');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'warnings-box';
+    resultsBox.prepend(box);
+  }
+  if (!warnings.length) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  box.classList.remove('hidden');
+  box.innerHTML = warnings.map(w =>
+    `<div style="background:#78350f;border:1px solid #d97706;color:#fef3c7;padding:0.75rem 1rem;border-radius:0.5rem;margin-bottom:0.5rem;font-size:0.85rem;">\u26a0\ufe0f ${w}</div>`
+  ).join('');
+}
+
 /* ── SCADA render ── */
 function renderScadaResults(payload) {
-  const { summary, data } = payload;
+  const { summary, data, warnings } = payload;
+  renderWarnings(warnings || []);
   renderStats(summary, payload.total_rows);
   renderQualityStrip(summary.flag_breakdown);
   renderScadaChart(data);

@@ -56,6 +56,7 @@ import io
 import logging
 import re
 import zipfile
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 import httpx
@@ -68,6 +69,13 @@ from app.config import (
     AEMO_READ_TIMEOUT,
     DATA_START_DATE,
 )
+
+
+@dataclass
+class FetchResult:
+    """Result of a fetch operation: CSV bytes plus any warnings for the user."""
+    csv_bytes: bytes = b""
+    warnings: list[str] = field(default_factory=list)
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +92,33 @@ _HEADERS = {
 class AEMOFetchError(Exception):
     """Raised when data cannot be retrieved from AEMO."""
     pass
+
+
+# Era boundaries: AEMO changed FPPMW naming/publishing three times in 2024-2025.
+_ERA2_START = date(2025, 4, 29)   # first day with D+1 naming, single file (12h only)
+_ERA3_START = date(2025, 9, 11)   # first day with Format-1 + Format-2 (both D+1)
+
+
+def _era(target_date: date) -> int:
+    """Return the FPPMW format era (1, 2, or 3) for a settlement date."""
+    if target_date < _ERA2_START:
+        return 1
+    if target_date < _ERA3_START:
+        return 2
+    return 3
+
+
+def _inner_zip_date_str(target_date: date) -> str:
+    """
+    Return the date string used INSIDE archive bundle inner-ZIP filenames.
+
+    Era 1: filenames embed the settlement/data date (D).
+    Era 2+: filenames embed the publication date (D+1).
+    """
+    era = _era(target_date)
+    if era == 1:
+        return _date_str(target_date)
+    return _date_str(target_date + timedelta(days=1))
 
 
 def _is_current(target_date: date) -> bool:
@@ -149,65 +184,60 @@ def _date_str(target_date: date) -> str:
 async def _find_files_in(
     filenames: list[str],
     target_date: date,
-    pub_date_str: str,
+    search_strs: list[str],
     url: str,
 ) -> list[tuple[str, str, str]]:
     """
     Return a list of (filename, url, kind) for every ZIP that covers target_date.
 
-    FPPMW files use the PUBLICATION date (D+1) in their filename, not the
-    settlement date D.  pub_date_str must therefore be _date_str(target_date + 1).
+    search_strs contains one or more YYYYMMDD date strings to look for in
+    filenames and inside archive bundles.  The list is era-aware:
+      - Era 1 (before Apr 29 2025): [D, D+1]  (settlement date in filenames;
+        need both calendar days to cover 04:00-04:00 trading day)
+      - Era 2/3 (Apr 29 2025+): [D+1]  (publication date in filenames)
 
     Two file styles exist:
 
       Individual daily files (Current dir, and recent archive copies):
         PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD_<seq>.zip         ← Format-1
         PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDDHHMMSS_<seq>.zip ← Format-2
-        Both embed pub_date_str in their name → one substring search finds both.
+        Matched by substring search using search_strs.
 
       Archive bundles (monthly Mar 2025 – Jan 2026, weekly Aug 2025+):
         PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD.zip      ← Format-1 bundle
         PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDD.zip    ← Format-2 bundle
         Bundles end with _YYYYMMDD.zip (no suffix after date).
-        YYYYMMDD = publication date of the first entry in the bundle.
-        Select the latest bundle whose date <= pub_date, independently for
-        each format, so both 12-hour halves are retrieved when separate
-        Format-2 bundles exist (Sep 2025+).
+        Select the latest bundle whose date <= max(search dates).
 
     kind values
     -----------
     "fppmw_daily"    Individual FPPMW file (Current dir or archive copy).
-                     Structure: outer ZIP → inner ZIP(s) → CSV(s).
     "fppmw_monthly"  FPPMW archive bundle (monthly or weekly).
-                     Structure: outer ZIP → per-pub-date inner ZIPs → CSV.
-                     Uses HTTP Range requests to avoid full download.
     """
-    # Only FPPMW files are used. FPP files lack MEASUREMENT_DATETIME,
-    # MEASURED_MW, and MW_QUALITY_FLAG and cannot supply SCADA data.
+    max_search_date = max(
+        datetime.strptime(s, "%Y%m%d").date() for s in search_strs
+    )
 
-    pub_date = target_date + timedelta(days=1)
-
-    # 1. Exact daily match: non-bundle FPPMW files containing pub_date_str.
-    #    Both Format-1 (_YYYYMMDD_<seq>) and Format-2 (_2_YYYYMMDDHHMMSS_<seq>)
-    #    embed pub_date_str, so one substring search captures both halves.
+    # 1. Exact daily match: non-bundle FPPMW files matching any search string.
     fppmw_exact = sorted(
         f for f in filenames
-        if "FPPMW" in f and pub_date_str in f and not _is_fppmw_bundle(f)
+        if "FPPMW" in f
+        and any(s in f for s in search_strs)
+        and not _is_fppmw_bundle(f)
     )
     if fppmw_exact:
         logger.info("Exact match(es) at %s: %s", url, fppmw_exact)
         return [(f, url, "fppmw_daily") for f in fppmw_exact]
 
     # 2. Archive bundle match: find the best Format-1 and Format-2 bundle
-    #    independently.  A bundle's date is the pub date of its first entry,
-    #    so select the latest bundle_date <= pub_date for each format.
+    #    independently.  Select latest bundle_date <= max_search_date.
     f1_candidates: list[tuple[date, str]] = []
     f2_candidates: list[tuple[date, str]] = []
     for f in filenames:
         if not _is_fppmw_bundle(f):
             continue
         zip_date = _extract_zip_date(f)
-        if zip_date is None or zip_date > pub_date:
+        if zip_date is None or zip_date > max_search_date:
             continue
         if re.search(r'FPPMW_2_', f, re.IGNORECASE):
             f2_candidates.append((zip_date, f))
@@ -218,12 +248,12 @@ async def _find_files_in(
     if f1_candidates:
         f1_candidates.sort(reverse=True)
         best_f1 = f1_candidates[0][1]
-        logger.info("Format-1 bundle match at %s: %s (pub_date %s)", url, best_f1, pub_date_str)
+        logger.info("Format-1 bundle match at %s: %s (search %s)", url, best_f1, search_strs)
         results.append((best_f1, url, "fppmw_monthly"))
     if f2_candidates:
         f2_candidates.sort(reverse=True)
         best_f2 = f2_candidates[0][1]
-        logger.info("Format-2 bundle match at %s: %s (pub_date %s)", url, best_f2, pub_date_str)
+        logger.info("Format-2 bundle match at %s: %s (search %s)", url, best_f2, search_strs)
         results.append((best_f2, url, "fppmw_monthly"))
 
     return results
@@ -231,13 +261,31 @@ async def _find_files_in(
 
 async def _find_files(
     target_date: date, client: httpx.AsyncClient
-) -> tuple[list[tuple[str, str, str]], str]:
+) -> tuple[list[tuple[str, str, str]], list[str]]:
     """
     Search Current then Archive for all ZIPs covering target_date.
-    Returns (list of (filename, base_url, kind), pub_date_str).
-    pub_date_str is the publication date string (target_date + 1 day).
+    Returns (list of (filename, base_url, kind), search_strs).
+
+    search_strs is the era-aware list of date strings to look for inside
+    archive bundles (settlement date for Era 1, publication date for Era 2+).
     """
-    pub_date_str = _date_str(target_date + timedelta(days=1))
+    era = _era(target_date)
+    if era == 1:
+        # Era 1: filenames use settlement date; need D and D+1 to cover
+        # the 04:00-04:00 trading day (midnight-to-midnight files).
+        search_strs = [
+            _date_str(target_date),
+            _date_str(target_date + timedelta(days=1)),
+        ]
+    else:
+        # Era 2+: filenames use publication date (D+1).
+        search_strs = [_date_str(target_date + timedelta(days=1))]
+
+    logger.info(
+        "Searching for settlement date %s (era %d, search strings: %s)",
+        target_date, era, search_strs,
+    )
+
     last_filenames: list[str] = []
     for url in [AEMO_CURRENT_URL, AEMO_ARCHIVE_URL]:
         try:
@@ -247,13 +295,13 @@ async def _find_files(
             continue
 
         last_filenames = filenames
-        results = await _find_files_in(filenames, target_date, pub_date_str, url)
+        results = await _find_files_in(filenames, target_date, search_strs, url)
         if results:
-            return results, pub_date_str
+            return results, search_strs
 
     logger.error(
-        "No file found for %s (pub_date_str=%s). Last directory listing sample: %s",
-        target_date, pub_date_str, last_filenames[:10],
+        "No file found for %s (search_strs=%s). Last directory listing sample: %s",
+        target_date, search_strs, last_filenames[:10],
     )
     raise AEMOFetchError(
         f"No FPPDAILY data found for {target_date.strftime('%d %B %Y')}. "
@@ -332,50 +380,38 @@ def _extract_csv_from_zip(
         return b"".join(all_csv_bytes)
 
 
-async def _fetch_fppmw_monthly_csv(bundle_url: str, pub_date_str: str) -> bytes:
+async def _fetch_fppmw_monthly_csv(
+    bundle_url: str, search_strs: list[str]
+) -> bytes:
     """
     Extract one NEM market day's CSV data from an FPPMW archive bundle.
 
     Uses HTTP Range requests via remotezip so only the ZIP central directory
     and the required daily ZIP entries are transferred — not the full bundle.
 
-    pub_date_str must be the PUBLICATION date (settlement date + 1 day),
-    because FPPMW inner ZIPs embed the publication date in their names,
-    not the settlement date.
-
-    Bundle structure (Format-1 only, e.g. monthly Apr–Aug 2025):
-      PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD.zip
-        PUBLIC_NEXT_DAY_FPPMW_<pub_date>_XXXXXXXX.ZIP   ← first-half inner ZIP
-          PUBLIC_NEXT_DAY_FPPMW_<pub_date>_XXXXXXXX.CSV
-
-    Bundle structure (Format-1 + Format-2, Sep 2025+):
-      PUBLIC_NEXT_DAY_FPPMW_YYYYMMDD.zip
-        PUBLIC_NEXT_DAY_FPPMW_<pub_date>_XXXXXXXX.ZIP           ← first half
-      PUBLIC_NEXT_DAY_FPPMW_2_YYYYMMDD.zip
-        PUBLIC_NEXT_DAY_FPPMW_2_<pub_date>HHMMSS_XXXXXXXX.ZIP  ← second half
-
-    A single pub_date_str substring search finds all matching inner ZIPs;
-    all are extracted and their CSVs concatenated to cover the half-day in
-    this bundle (the other half is handled by the sibling bundle call).
+    search_strs contains one or more YYYYMMDD strings to match inside the
+    bundle.  For Era 1 this is [D, D+1] (settlement dates); for Era 2+ it
+    is [D+1] (publication date).
     """
     def _sync_extract() -> bytes:
         logger.info("Opening FPPMW archive bundle via HTTP Range: %s", bundle_url)
         with RemoteZip(bundle_url, headers=_HEADERS) as rz:
             all_names = rz.namelist()
-            daily_zips = [
+            daily_zips = sorted(
                 name for name in all_names
-                if name.upper().endswith(".ZIP") and pub_date_str in name
-            ]
+                if name.upper().endswith(".ZIP")
+                and any(s in name for s in search_strs)
+            )
             if not daily_zips:
                 raise AEMOFetchError(
-                    f"No entry found for pub_date {pub_date_str} in the FPPMW archive bundle."
+                    f"No entry found for {search_strs} in the FPPMW archive bundle."
                 )
             logger.info(
                 "Downloading %d inner ZIP(s) from bundle: %s", len(daily_zips), daily_zips
             )
 
             all_csv_bytes: list[bytes] = []
-            for daily_zip_name in sorted(daily_zips):  # sort: first half before second
+            for daily_zip_name in daily_zips:
                 daily_zip_bytes = io.BytesIO(rz.read(daily_zip_name))
                 with zipfile.ZipFile(daily_zip_bytes) as daily_zf:
                     csvs = sorted(
@@ -407,18 +443,39 @@ async def _fetch_fppmw_monthly_csv(bundle_url: str, pub_date_str: str) -> bytes:
         ) from exc
 
 
+def _era_warnings(target_date: date) -> list[str]:
+    """Return any data-availability warnings based on the target date's era."""
+    # Era 2 (29 Apr 2025 – 10 Sep 2025): AEMO only published Format-1 (first
+    # 12-hour half).  Format-2 files (second half, 16:00–04:00) were not
+    # published during this period.
+    era2_start = date(2025, 4, 29)
+    era2_end = date(2025, 9, 10)
+    if era2_start <= target_date <= era2_end:
+        return [
+            "Only 12 hours of data (04:00\u201316:00) is available for dates "
+            "between 29 April and 10 September 2025. The second half of the "
+            "trading day was not published by AEMO during this period."
+        ]
+    return []
+
+
 async def fetch_csv_for_date(
     target_date: date,
     duid: str,
     *,
     skip_future_check: bool = False,
-) -> bytes:
+) -> FetchResult:
     """
-    Download ALL FPPDAILY files for target_date and return concatenated CSV bytes.
+    Download ALL FPPDAILY files for target_date and return a FetchResult.
 
-    FPPMW filenames embed the PUBLICATION date (D+1), not the settlement date D.
-    _find_files searches using pub_date_str = D+1, finding both Format-1 and
-    Format-2 files.  All matches are downloaded and their CSV bytes concatenated.
+    The result contains concatenated CSV bytes and any user-facing warnings
+    (e.g. partial data due to AEMO publishing gaps).
+
+    The date string used for filename matching is era-aware:
+      - Era 1 (before Apr 29 2025): settlement date D and D+1
+      - Era 2+ (Apr 29 2025 onward): publication date D+1
+
+    All matches are downloaded and their CSV bytes concatenated.
     The data_processor applies the [04:00 AEST D, 04:00 AEST D+1) boundary.
 
     skip_future_check: set True to bypass the future-date guard.
@@ -431,19 +488,22 @@ async def fetch_csv_for_date(
     if not skip_future_check and target_date >= date.today():
         raise AEMOFetchError("Cannot request data for today or future dates.")
 
+    warnings = _era_warnings(target_date)
     date_str = _date_str(target_date)
 
     async with httpx.AsyncClient() as client:
-        file_list, pub_date_str = await _find_files(target_date, client)
+        file_list, search_strs = await _find_files(target_date, client)
 
         csv_parts: list[bytes] = []
         for filename, found_url, kind in file_list:
             zip_url = found_url + filename
 
-            # FPPMW archive bundles: extract via HTTP Range using pub_date_str
+            # FPPMW archive bundles: extract via HTTP Range using search_strs
             # to locate the target day's inner ZIP(s) within the bundle.
             if kind == "fppmw_monthly":
-                csv_parts.append(await _fetch_fppmw_monthly_csv(zip_url, pub_date_str))
+                csv_parts.append(
+                    await _fetch_fppmw_monthly_csv(zip_url, search_strs)
+                )
                 continue
 
             # fppmw_daily: download the (daily-sized) ZIP file.
@@ -479,4 +539,4 @@ async def fetch_csv_for_date(
                     "Downloaded file appears to be corrupt. Please try again."
                 )
 
-        return b"".join(csv_parts)
+        return FetchResult(csv_bytes=b"".join(csv_parts), warnings=warnings)
