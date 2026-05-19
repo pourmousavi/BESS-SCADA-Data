@@ -70,8 +70,24 @@ def _source_type(target_date: date) -> str:
 
 @router.get("/bess")
 async def get_bess_list():
-    """Return in-service battery storage units grouped by state."""
-    return await fetch_bess_list()
+    """
+    Return in-service battery storage units grouped by state.
+
+    Response shape:
+      {
+        "states":     { "NSW": [...], "VIC": [...], ... },
+        "source":     "live" | "mirror" | "snapshot",
+        "fetched_at": ISO-8601 timestamp,
+        "warnings":   list of strings (may be empty)
+      }
+    """
+    result = await fetch_bess_list()
+    return {
+        "states":     result.states,
+        "source":     result.source,
+        "fetched_at": result.fetched_at.isoformat(timespec="seconds") + "Z",
+        "warnings":   result.warnings,
+    }
 
 
 # ── Quality flags ─────────────────────────────────────────────────────────────

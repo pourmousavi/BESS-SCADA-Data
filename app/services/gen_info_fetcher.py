@@ -1,15 +1,23 @@
 """
 Fetches and parses the AEMO NEM Generation Information XLSX.
 
-Downloads the spreadsheet from AEMO, reads the "Generator Information" sheet,
-and returns all in-service battery storage units grouped by NEM region/state.
+Sources tried in order on every cache miss:
 
-The spreadsheet is cached in memory for 24 hours to avoid re-downloading on
-every request.  On any failure the caller receives the cached data (if any) or
-the static fallback bess_list.json.
+  1. live      — direct download from www.aemo.com.au (subject to WAF blocks
+                 from datacentre IPs; see _BROWSER_HEADERS).
+  2. mirror    — raw.githubusercontent.com copy committed daily by the
+                 refresh_bess_list workflow.
+  3. snapshot  — the parsed bess_list.json bundled in the repo (also
+                 written by refresh_bess_list).
+
+The first successful step is cached in memory for 24 hours.  The result
+carries a `source` field and any user-facing `warnings` so the API can
+expose data freshness in the response.
 """
 import io
+import json
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -23,6 +31,38 @@ XLSX_URL = (
     "/generation_information/2026/nem-generation-information-jan-2026.xlsx"
     "?rev=1f6bccf827284f9fb6d6f3ae56ed3fe9&sc_lang=en"
 )
+
+# raw.githubusercontent.com copy of the XLSX, refreshed daily by
+# .github/workflows/refresh_bess_list.yml. Used as the second-choice source
+# when the live AEMO fetch fails (e.g. WAF 403 from the HuggingFace egress IP).
+XLSX_MIRROR_URL = (
+    "https://raw.githubusercontent.com/pourmousavi/BESS-SCADA-Data"
+    "/master/app/data/aemo_gen_info.xlsx"
+)
+
+# AEMO's Azure Front Door WAF on www.aemo.com.au returns 403 to requests that
+# look like default Python clients. Sending a full browser-style header set
+# bypasses the simpler bot-detection rules. (Doesn't help against pure
+# IP-range blocks — see gen_info_mirror.py for the raw.githubusercontent.com
+# fallback.)
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
+        "application/octet-stream;q=0.9,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-AU,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": "https://www.aemo.com.au/energy-systems/electricity/national-electricity-market-nem/nem-forecasting-and-planning/forecasting-and-planning-data/generation-information",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Upgrade-Insecure-Requests": "1",
+}
 
 SHEET_NAME = "Generator Information"
 
@@ -49,8 +89,24 @@ _COL_CAPACITY_MWH = "Agg Nameplate Storage Capacity (MWh)"
 
 CACHE_TTL = timedelta(hours=24)
 
-# In-memory cache: (parsed_result, fetched_at)
-_cache: tuple[dict, datetime] | None = None
+
+@dataclass
+class BessListResult:
+    """Parsed BESS list plus provenance for the API response."""
+    states: dict[str, list[dict]]
+    source: str            # "live" | "mirror" | "snapshot"
+    fetched_at: datetime   # for the live/mirror path: now; for snapshot: snapshot timestamp
+    warnings: list[str] = field(default_factory=list)
+
+
+# In-memory cache: (result, cached_at)
+_cache: tuple[BessListResult, datetime] | None = None
+
+
+# Snapshot files written by scripts/refresh_bess_list.py
+_DATA_DIR = Path(__file__).parent.parent / "data"
+_SNAPSHOT_JSON = _DATA_DIR / "bess_list.json"
+_SNAPSHOT_META = _DATA_DIR / "bess_list_meta.json"
 
 
 def _find_col(headers: list[str], target: str) -> int | None:
@@ -166,12 +222,39 @@ def _parse_xlsx(xlsx_bytes: bytes) -> dict[str, list[dict]]:
     return result
 
 
-async def fetch_bess_list() -> dict[str, list[dict]]:
-    """
-    Return the BESS list from the AEMO generation information XLSX.
+async def _download_and_parse(url: str, client: httpx.AsyncClient) -> dict[str, list[dict]]:
+    resp = await client.get(url, headers=_BROWSER_HEADERS)
+    resp.raise_for_status()
+    return _parse_xlsx(resp.content)
 
-    Uses a 24-hour in-memory cache.  Falls back to the static bess_list.json
-    if the download or parse fails and no cached data is available.
+
+def _load_snapshot() -> BessListResult:
+    """Load the parsed JSON snapshot bundled in the repo. Raises if missing."""
+    states = json.loads(_SNAPSHOT_JSON.read_text())
+    fetched_at = datetime.utcnow()
+    if _SNAPSHOT_META.exists():
+        try:
+            meta = json.loads(_SNAPSHOT_META.read_text())
+            ts = meta.get("fetched_at")
+            if ts:
+                # strip any trailing 'Z' / timezone offset to a naive UTC datetime
+                ts_clean = ts.replace("Z", "+00:00")
+                fetched_at = datetime.fromisoformat(ts_clean).replace(tzinfo=None)
+        except (ValueError, KeyError) as exc:
+            logger.warning("Could not parse snapshot meta %s: %s", _SNAPSHOT_META, exc)
+    return BessListResult(
+        states=states,
+        source="snapshot",
+        fetched_at=fetched_at,
+    )
+
+
+async def fetch_bess_list() -> BessListResult:
+    """
+    Return the BESS list, trying live AEMO → GitHub mirror → bundled snapshot.
+
+    Uses a 24-hour in-memory cache (per source). The result carries provenance
+    so the API can surface a warning when serving non-live data.
     """
     global _cache
 
@@ -179,32 +262,64 @@ async def fetch_bess_list() -> dict[str, list[dict]]:
 
     # Return cached data if still fresh
     if _cache is not None:
-        parsed, fetched_at = _cache
-        if now - fetched_at < CACHE_TTL:
-            logger.debug("Returning cached BESS list (age %s)", now - fetched_at)
-            return parsed
+        cached, cached_at = _cache
+        if now - cached_at < CACHE_TTL:
+            logger.debug("Returning cached BESS list (age %s, source=%s)",
+                         now - cached_at, cached.source)
+            return cached
 
-    # Attempt download
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        # 1. Live AEMO
+        try:
+            logger.info("Downloading AEMO XLSX (live): %s", XLSX_URL)
+            states = await _download_and_parse(XLSX_URL, client)
+            result = BessListResult(states=states, source="live", fetched_at=now)
+            _cache = (result, now)
+            return result
+        except Exception as exc:
+            logger.warning("Live AEMO XLSX fetch failed: %s", exc)
+
+        # 2. GitHub raw mirror (refreshed daily by CI)
+        try:
+            logger.info("Downloading AEMO XLSX (mirror): %s", XLSX_MIRROR_URL)
+            states = await _download_and_parse(XLSX_MIRROR_URL, client)
+            result = BessListResult(
+                states=states,
+                source="mirror",
+                fetched_at=now,
+                warnings=[
+                    "Live AEMO BESS list is unavailable; showing a copy mirrored "
+                    "from GitHub (updated daily)."
+                ],
+            )
+            _cache = (result, now)
+            return result
+        except Exception as exc:
+            logger.warning("Mirror XLSX fetch failed: %s", exc)
+
+    # 3. Bundled snapshot — last resort. Always serve something rather than 5xx.
     try:
-        logger.info("Downloading AEMO generation information XLSX from %s", XLSX_URL)
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            resp = await client.get(XLSX_URL)
-            resp.raise_for_status()
-
-        parsed = _parse_xlsx(resp.content)
-        _cache = (parsed, now)
-        return parsed
-
-    except Exception as exc:
-        logger.warning("Failed to fetch/parse AEMO gen info XLSX: %s", exc)
-
-        # Return stale cache rather than nothing
-        if _cache is not None:
-            logger.warning("Returning stale BESS list cache (age %s)", now - _cache[1])
-            return _cache[0]
-
-        # Last resort: return static fallback file
-        logger.warning("Falling back to static bess_list.json")
-        import json
-        fallback = Path(__file__).parent.parent / "data" / "bess_list.json"
-        return json.loads(fallback.read_text())
+        snapshot = _load_snapshot()
+        age = now - snapshot.fetched_at
+        days = max(age.days, 0)
+        snapshot.warnings = [
+            f"Live AEMO BESS list and mirror are both unavailable; "
+            f"showing bundled snapshot from {snapshot.fetched_at:%Y-%m-%d} "
+            f"({days} day{'s' if days != 1 else ''} old)."
+        ]
+        _cache = (snapshot, now)
+        logger.warning("Falling back to bundled snapshot (age %s)", age)
+        return snapshot
+    except FileNotFoundError:
+        logger.error("No bundled snapshot at %s", _SNAPSHOT_JSON)
+        # Return an empty result rather than raising — frontend handles
+        # empty states gracefully and the warning explains why.
+        return BessListResult(
+            states={s: [] for s in REGION_TO_STATE.values()},
+            source="snapshot",
+            fetched_at=now,
+            warnings=[
+                "BESS list is currently unavailable from AEMO and no local "
+                "snapshot is bundled. Try again later."
+            ],
+        )

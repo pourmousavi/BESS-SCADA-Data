@@ -1,32 +1,277 @@
 {
   "NSW": [
-    {"duid": "NESBESS1", "name": "New England BESS 1", "capacity_mw": 126, "region": "NSW1"},
-    {"duid": "NESBESS2", "name": "New England BESS 2", "capacity_mw": 126, "region": "NSW1"},
-    {"duid": "WARATAHSF1", "name": "Waratah Super Battery 1", "capacity_mw": 850, "region": "NSW1"},
-    {"duid": "ERARINGSF1", "name": "Eraring Battery 1", "capacity_mw": 460, "region": "NSW1"},
-    {"duid": "LMOBESS1", "name": "Limondale BESS", "capacity_mw": 50, "region": "NSW1"}
-  ],
-  "VIC": [
-    {"duid": "BNGSF2", "name": "Big Battery (Victorian Big Battery)", "capacity_mw": 300, "region": "VIC1"},
-    {"duid": "RANGEBANKBESS1", "name": "Rangebank BESS", "capacity_mw": 200, "region": "VIC1"},
-    {"duid": "MREHABESS1", "name": "Melbourne Renewable Energy Hub BESS", "capacity_mw": 600, "region": "VIC1"},
-    {"duid": "GANNBESS1", "name": "Gannawarra BESS", "capacity_mw": 25, "region": "VIC1"},
-    {"duid": "BALLBESS1", "name": "Ballarat BESS", "capacity_mw": 30, "region": "VIC1"}
+    {
+      "capacity_mw": 10.0,
+      "capacity_mwh": 20.0,
+      "duid": "QBYNB1",
+      "name": "QBESS",
+      "region": "NSW1"
+    },
+    {
+      "capacity_mw": 60.28,
+      "capacity_mwh": 60.28,
+      "duid": "BHB1",
+      "name": "BKBESS1",
+      "region": "NSW1"
+    },
+    {
+      "capacity_mw": 99.99,
+      "capacity_mwh": 199.98,
+      "duid": "CAPBES1",
+      "name": "CBESS",
+      "region": "NSW1"
+    },
+    {
+      "capacity_mw": 24.96,
+      "capacity_mwh": 50.08,
+      "duid": "DPNTB1",
+      "name": "Darlington Pnt ESS1",
+      "region": "NSW1"
+    },
+    {
+      "capacity_mw": 460.0,
+      "capacity_mwh": 1073.0,
+      "duid": "ERB01",
+      "name": "ERARNGB1",
+      "region": "NSW1"
+    },
+    {
+      "capacity_mw": 60.0,
+      "capacity_mwh": 120.0,
+      "duid": "RESS1",
+      "name": "RiverESS",
+      "region": "NSW1"
+    },
+    {
+      "capacity_mw": 65.0,
+      "capacity_mwh": 130.0,
+      "duid": "RIVNB2",
+      "name": "Riverina ESS 2",
+      "region": "NSW1"
+    },
+    {
+      "capacity_mw": 86.4,
+      "capacity_mwh": 129.96,
+      "duid": "SMTHBES1",
+      "name": "SmithBes",
+      "region": "NSW1"
+    },
+    {
+      "capacity_mw": 61.2,
+      "capacity_mwh": 2700.0,
+      "duid": "WALGRV1",
+      "name": "WLGBESS1",
+      "region": "NSW1"
+    }
   ],
   "QLD": [
-    {"duid": "WDWBESS1", "name": "Western Downs BESS", "capacity_mw": 255, "region": "QLD1"},
-    {"duid": "GRNBKBESS1", "name": "Greenbank BESS", "capacity_mw": 200, "region": "QLD1"},
-    {"duid": "TRNBESS1", "name": "Tarong BESS", "capacity_mw": 300, "region": "QLD1"},
-    {"duid": "SWANBESS1", "name": "Swanbank BESS", "capacity_mw": 250, "region": "QLD1"},
-    {"duid": "WANDBESS1", "name": "Wandoan South BESS", "capacity_mw": 100, "region": "QLD1"}
+    {
+      "capacity_mw": 50.0,
+      "capacity_mwh": 100.0,
+      "duid": "BBATTERY1",
+      "name": "BLDRCMB1",
+      "region": "QLD1"
+    },
+    {
+      "capacity_mw": 100.0,
+      "capacity_mwh": 200.0,
+      "duid": "CHBESS1",
+      "name": "Chinch1",
+      "region": "QLD1"
+    },
+    {
+      "capacity_mw": 200.0,
+      "capacity_mwh": 400.0,
+      "duid": "GREENB1",
+      "name": "GREENB1",
+      "region": "QLD1"
+    },
+    {
+      "capacity_mw": 2.0,
+      "capacity_mwh": 4.0,
+      "duid": "KEPBG1",
+      "name": "KEPBG1",
+      "region": "QLD1"
+    },
+    {
+      "capacity_mw": 154.96,
+      "capacity_mwh": 297.96,
+      "duid": "ULPBESS1",
+      "name": "ULINDAB1",
+      "region": "QLD1"
+    },
+    {
+      "capacity_mw": 100.0,
+      "capacity_mwh": 150.0,
+      "duid": "WANDB1",
+      "name": "WSBESS1",
+      "region": "QLD1"
+    }
   ],
   "SA": [
-    {"duid": "HORNSDALE_PWR1", "name": "Hornsdale Power Reserve 1", "capacity_mw": 100, "region": "SA1"},
-    {"duid": "HORNSDALE_PWR2", "name": "Hornsdale Power Reserve 2", "capacity_mw": 100, "region": "SA1"},
-    {"duid": "HORNSDALE_PWR3", "name": "Hornsdale Power Reserve 3", "capacity_mw": 50, "region": "SA1"},
-    {"duid": "BLYTHBESS1", "name": "Blyth BESS", "capacity_mw": 200, "region": "SA1"},
-    {"duid": "DALRYMPLE1", "name": "Dalrymple BESS", "capacity_mw": 30, "region": "SA1"},
-    {"duid": "OSBORNE1", "name": "Osborne BESS", "capacity_mw": 50, "region": "SA1"}
+    {
+      "capacity_mw": 7.76,
+      "capacity_mwh": 12.6,
+      "duid": "ADPBA1",
+      "name": "ADPBA1",
+      "region": "SA1"
+    },
+    {
+      "capacity_mw": 200.32,
+      "capacity_mwh": 400.0,
+      "duid": "BLYTHB1",
+      "name": "BLYTHWBT",
+      "region": "SA1"
+    },
+    {
+      "capacity_mw": 3.08,
+      "capacity_mwh": 5.04,
+      "duid": "BOWWBA1",
+      "name": "BOWWBA1",
+      "region": "SA1"
+    },
+    {
+      "capacity_mw": 2.16,
+      "capacity_mwh": null,
+      "duid": "CBWWBA1",
+      "name": "CBWWBA1",
+      "region": "SA1"
+    },
+    {
+      "capacity_mw": 30.0,
+      "capacity_mwh": 9.0,
+      "duid": "DALNTH1",
+      "name": "BESS1-12",
+      "region": "SA1"
+    },
+    {
+      "capacity_mw": 5.52,
+      "capacity_mwh": 8.82,
+      "duid": "HVWWBA1",
+      "name": "HVWWBA1",
+      "region": "SA1"
+    },
+    {
+      "capacity_mw": 50.0,
+      "capacity_mwh": 61.3,
+      "duid": "HPR1",
+      "name": "HPRG EXP",
+      "region": "SA1"
+    },
+    {
+      "capacity_mw": 100.0,
+      "capacity_mwh": 117.0,
+      "duid": "HPR1",
+      "name": "HPRG1",
+      "region": "SA1"
+    },
+    {
+      "capacity_mw": 28.8,
+      "capacity_mwh": 51.84,
+      "duid": "LBB1",
+      "name": "LBB1",
+      "region": "SA1"
+    },
+    {
+      "capacity_mw": 100.0,
+      "capacity_mwh": 200.0,
+      "duid": "MANNUMB1",
+      "name": "MANNUMBT",
+      "region": "SA1"
+    },
+    {
+      "capacity_mw": 250.7,
+      "capacity_mwh": 249.61,
+      "duid": "TIB1",
+      "name": "TIPSBESS",
+      "region": "SA1"
+    }
   ],
-  "TAS": []
+  "TAS": [],
+  "VIC": [
+    {
+      "capacity_mw": 30.09,
+      "capacity_mwh": 30.09,
+      "duid": "BALB1",
+      "name": "Ballarat Energy Storage System:1",
+      "region": "VIC1"
+    },
+    {
+      "capacity_mw": 20.0,
+      "capacity_mwh": 34.0,
+      "duid": "BULBES1",
+      "name": "Bulgana Green Power Hub - BESS:1",
+      "region": "VIC1"
+    },
+    {
+      "capacity_mw": 25.5,
+      "capacity_mwh": 50.0,
+      "duid": "GANNB1",
+      "name": "Gannawarra Energy Storage System:1",
+      "region": "VIC1"
+    },
+    {
+      "capacity_mw": 200.07,
+      "capacity_mwh": 162.0,
+      "duid": "HBESS1",
+      "name": "HBESS1",
+      "region": "VIC1"
+    },
+    {
+      "capacity_mw": 185.0,
+      "capacity_mwh": 370.0,
+      "duid": "KESSB1",
+      "name": "Koorangi",
+      "region": "VIC1"
+    },
+    {
+      "capacity_mw": 97.9,
+      "capacity_mwh": 195.8,
+      "duid": "LVES1",
+      "name": "LaTroBES",
+      "region": "VIC1"
+    },
+    {
+      "capacity_mw": 216.16,
+      "capacity_mwh": 399.84,
+      "duid": "MREHA1",
+      "name": "MREHA1",
+      "region": "VIC1"
+    },
+    {
+      "capacity_mw": 216.16,
+      "capacity_mwh": 399.84,
+      "duid": "MREHA2",
+      "name": "MREHA2",
+      "region": "VIC1"
+    },
+    {
+      "capacity_mw": 215.6,
+      "capacity_mwh": 800.8,
+      "duid": "MREHA3",
+      "name": "MREHA3",
+      "region": "VIC1"
+    },
+    {
+      "capacity_mw": 5.0,
+      "capacity_mwh": 10.0,
+      "duid": "PIBESS1",
+      "name": "PIBS_GU1",
+      "region": "VIC1"
+    },
+    {
+      "capacity_mw": 200.0,
+      "capacity_mwh": 400.0,
+      "duid": "RANGEB1",
+      "name": "Rangebnk",
+      "region": "VIC1"
+    },
+    {
+      "capacity_mw": 300.0,
+      "capacity_mwh": 470.0,
+      "duid": "VBB1",
+      "name": "BESS",
+      "region": "VIC1"
+    }
+  ]
 }

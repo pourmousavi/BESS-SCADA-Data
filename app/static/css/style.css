@@ -303,8 +303,9 @@ select:disabled, input:disabled {
   gap: 0.6rem;
   align-items: flex-start;
 }
-.alert-error { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; }
-.alert-info  { background: rgba(56,189,248,0.1);  border: 1px solid rgba(56,189,248,0.3); color: var(--accent); }
+.alert-error   { background: rgba(239,68,68,0.15);  border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; }
+.alert-info    { background: rgba(56,189,248,0.1);   border: 1px solid rgba(56,189,248,0.3); color: var(--accent); }
+.alert-warning { background: rgba(217,119,6,0.15);   border: 1px solid rgba(217,119,6,0.45); color: #fcd34d; }
 
 .hidden { display: none !important; }
 

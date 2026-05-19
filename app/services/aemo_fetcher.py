@@ -492,8 +492,8 @@ async def fetch_csv_for_date(
     """
     if target_date < DATA_START_DATE:
         raise AEMOFetchError(
-            f"Data is only available from {DATA_START_DATE.strftime('%d %B %Y')} "
-            "when the FPP scheme commenced."
+            f"Data is only available from {DATA_START_DATE.strftime('%d %B %Y')}. "
+            "Earlier daily files have been rolled off the AEMO NEMWEB archive."
         )
     if not skip_future_check and target_date >= date.today():
         raise AEMOFetchError("Cannot request data for today or future dates.")

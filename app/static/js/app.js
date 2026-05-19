@@ -8,8 +8,8 @@ const API = '';   // same origin
 let bessList        = {};
 let qualityFlags    = {};
 let cutoverDate     = '2026-01-11';   // SCADA current/archive cutover (from /api/info)
-let scadaStartDate  = '2025-02-28';   // from /api/info
-let dispatchStartDate = '2025-02-11'; // from /api/info
+let scadaStartDate  = '2025-04-29';   // from /api/info (NEMWEB archive starts here)
+let dispatchStartDate = '2025-04-01'; // from /api/info (NEMWEB archive starts here)
 let appEstimates    = {
   current:          { seconds: 120, sample_count: 0, is_default: true },
   archive:          { seconds: 480, sample_count: 0, is_default: true },
@@ -61,8 +61,9 @@ async function init() {
   } catch (_) {}
 
   // Load BESS list and quality flags in parallel
+  let bessResp;
   try {
-    [bessList, qualityFlags] = await Promise.all([
+    [bessResp, qualityFlags] = await Promise.all([
       fetch(`${API}/api/bess`).then(r => r.json()),
       fetch(`${API}/api/quality-flags`).then(r => r.json()),
     ]);
@@ -70,6 +71,8 @@ async function init() {
     showError('Failed to load BESS list. Please refresh the page.');
     return;
   }
+  bessList = bessResp.states || {};
+  renderBessListBanner(bessResp);
 
   // Populate state selector
   Object.keys(bessList).sort().forEach(state => {
@@ -97,7 +100,7 @@ async function init() {
       html: `
         <p class="about-source">
           Source: <strong>PUBLIC_NEXT_DAY_FPPMW</strong> (FPP Daily)
-          &nbsp;·&nbsp; Available from <strong>28 Feb 2025</strong>
+          &nbsp;·&nbsp; Available from <strong>29 Apr 2025</strong>
         </p>
         <div class="col-defs">
           <div class="col-def">
@@ -123,7 +126,7 @@ async function init() {
       html: `
         <p class="about-source">
           Source: <strong>DISPATCH_UNIT_SOLUTION</strong> via Next_Day_Dispatch
-          &nbsp;·&nbsp; Available from <strong>11 Feb 2025</strong>
+          &nbsp;·&nbsp; Available from <strong>1 Apr 2025</strong>
         </p>
         <div class="col-defs">
           <div class="col-def">
@@ -347,6 +350,31 @@ async function fetchEnergy(duid, date) {
     throw new Error(err.detail || `Server error ${resp.status}`);
   }
   return resp.json();
+}
+
+/* ── BESS-list staleness banner ── */
+function renderBessListBanner(resp) {
+  const box = document.getElementById('bess-list-banner');
+  if (!box) return;
+  const warnings = (resp && resp.warnings) || [];
+  if (!warnings.length) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  // One line per warning, prefixed with a warning icon.
+  box.innerHTML = warnings.map(w =>
+    `<div>⚠️ ${escapeHtml(w)}</div>`
+  ).join('');
+  box.classList.remove('hidden');
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 /* ── Warnings render ── */

@@ -273,7 +273,8 @@ async def fetch_dispatch_csv_for_date(
     if target_date < DISPATCH_START_DATE:
         raise DispatchFetchError(
             f"Dispatch energy data is only available from "
-            f"{DISPATCH_START_DATE.strftime('%d %B %Y')}."
+            f"{DISPATCH_START_DATE.strftime('%d %B %Y')}. "
+            "Earlier monthly bundles have been rolled off the AEMO NEMWEB archive."
         )
     if target_date >= date.today():
         raise DispatchFetchError(

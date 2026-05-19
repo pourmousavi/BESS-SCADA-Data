@@ -20,7 +20,7 @@ An interactive web app for exploring high-frequency power and energy storage dat
 ### 4-second SCADA — `PUBLIC_NEXT_DAY_FPPMW`
 
 - **Source:** [AEMO NEMWEB FPPDAILY](https://www.nemweb.com.au/REPORTS/Current/FPPDAILY/)
-- **Available from:** 28 February 2025 (FPP scheme commencement)
+- **Available from:** 29 April 2025 (the FPP scheme itself commenced 28 February 2025, but earlier daily bundles have been rolled off the AEMO NEMWEB archive)
 - **Granularity:** one row per 4-second grid slot
 
 | Column | Description |
@@ -33,7 +33,7 @@ An interactive web app for exploring high-frequency power and energy storage dat
 ### 5-minute Dispatch — `DISPATCH_UNIT_SOLUTION`
 
 - **Source:** [AEMO NEMWEB Next_Day_Dispatch](https://nemweb.com.au/Reports/Current/Next_Day_Dispatch/)
-- **Available from:** 11 February 2025
+- **Available from:** 1 April 2025 (the `INITIAL_ENERGY_STORAGE` column was added on 11 February 2025, but earlier monthly bundles have been rolled off the AEMO NEMWEB archive)
 - **Granularity:** one row per 5-minute dispatch interval
 
 | Column | Description |

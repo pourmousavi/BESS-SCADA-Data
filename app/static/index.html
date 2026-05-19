@@ -21,6 +21,9 @@
 
 <main>
 
+  <!-- ── BESS list staleness banner (shown only when /api/bess returns a non-live source) ── -->
+  <div id="bess-list-banner" class="alert alert-warning hidden" role="status"></div>
+
   <!-- ── Control panel ── -->
   <section class="panel">
     <h2>Select Data</h2>
@@ -54,7 +57,7 @@
               <input type="checkbox" id="chk-scada" checked />
               4-second SCADA
             </label>
-            <button class="about-toggle" data-tip="4-sec power output &amp; quality flags · PUBLIC_NEXT_DAY_FPPMW · from 28 Feb 2025" data-about="scada">▶ About</button>
+            <button class="about-toggle" data-tip="4-sec power output &amp; quality flags · PUBLIC_NEXT_DAY_FPPMW · from 29 Apr 2025" data-about="scada">▶ About</button>
           </div>
 
           <div class="check-row-header">
@@ -62,7 +65,7 @@
               <input type="checkbox" id="chk-energy" checked />
               5-minute Dispatch
             </label>
-            <button class="about-toggle" data-tip="5-min energy storage &amp; dispatch MW · DISPATCH_UNIT_SOLUTION · from 11 Feb 2025" data-about="energy">▶ About</button>
+            <button class="about-toggle" data-tip="5-min energy storage &amp; dispatch MW · DISPATCH_UNIT_SOLUTION · from 1 Apr 2025" data-about="energy">▶ About</button>
           </div>
 
         </div>
@@ -195,7 +198,7 @@
               Extracted from AEMO's <strong>DISPATCH_UNIT_SOLUTION</strong> table and published
               the following day via NEMWEB. Data is fetched live from:
               <a href="https://nemweb.com.au/Reports/Current/Next_Day_Dispatch/" target="_blank" rel="noopener">Current directory</a>
-              (individual daily files, 11 Feb 2025 – yesterday) or the
+              (individual daily files, recent months) or the
               <a href="https://www.nemweb.com.au/REPORTS/ARCHIVE/Next_Day_Dispatch/" target="_blank" rel="noopener">Archive directory</a>
               (monthly bundles for older dates, accessed via HTTP Range requests).
             </p>
@@ -253,13 +256,14 @@
       via NEMWEB:<br/><br/>
       <strong>4-second SCADA data</strong> — from
       <a href="https://www.nemweb.com.au/REPORTS/Current/FPPDAILY/" target="_blank" rel="noopener">NEMWEB FPPDAILY</a>,
-      available from <strong>28 February 2025</strong> when the
+      published as part of the
       <a href="https://aemo.com.au/initiatives/major-programs/frequency-performance-payments-project" target="_blank" rel="noopener">Frequency Performance Payments (FPP)</a>
-      scheme commenced non-financial operation.<br/><br/>
+      scheme (commenced 28 February 2025). Currently fetchable from <strong>29 April 2025</strong>;
+      earlier daily bundles have been rolled off the AEMO archive.<br/><br/>
       <strong>5-minute dispatch energy data</strong> — from
       <a href="https://nemweb.com.au/Reports/Current/Next_Day_Dispatch/" target="_blank" rel="noopener">NEMWEB Next_Day_Dispatch</a>,
-      available from <strong>11 February 2025</strong>. Provides initial energy storage (MWh)
-      and initial MW dispatch for each 5-minute interval.<br/><br/>
+      with the <code>INITIAL_ENERGY_STORAGE</code> column added on 11 February 2025.
+      Currently fetchable from <strong>1 April 2025</strong>; earlier monthly bundles have been rolled off.<br/><br/>
       Data is fetched live from AEMO on each request — no data is stored on this server.
       Maximum request window: <strong>1 day</strong> per query.
     </p>
