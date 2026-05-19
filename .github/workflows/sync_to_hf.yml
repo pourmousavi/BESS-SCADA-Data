@@ -14,6 +14,23 @@ jobs:
           fetch-depth: 0
           lfs: true
 
+      - name: Strip binary mirror files from local history before HF push
+        # HuggingFace Spaces rejects any pushed commit (current OR historical)
+        # that contains binary files outside Xet storage. The earlier commit
+        # c6c2fc1 introduced app/data/aemo_gen_info.xlsx and the follow-up
+        # removed it, but HF still rejects the historical commit. Rewriting
+        # local history in the runner removes the file from every commit so
+        # only a clean tree is published; master on origin is unaffected.
+        env:
+          FILTER_BRANCH_SQUELCH_WARNING: "1"
+        run: |
+          set -e
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git filter-branch -f \
+            --index-filter 'git rm --cached --ignore-unmatch app/data/aemo_gen_info.xlsx' \
+            HEAD
+
       - name: Push to HuggingFace
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
