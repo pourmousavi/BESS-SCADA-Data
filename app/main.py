@@ -1,11 +1,12 @@
 import logging
+import time
 import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.routers.api import router as api_router
@@ -60,6 +61,18 @@ STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
+# Bust the browser cache for /static/js/app.js and /static/css/style.css on
+# every container start so deploys don't get served stale assets. Each new
+# container produces a new __VERSION__ value; the HTML is rendered once at
+# startup and served from memory.
+_BUILD_VERSION = str(int(time.time()))
+_INDEX_HTML = (
+    (STATIC_DIR / "index.html")
+    .read_text()
+    .replace("__VERSION__", _BUILD_VERSION)
+)
+
+
 @app.get("/", include_in_schema=False)
 async def index():
-    return FileResponse(str(STATIC_DIR / "index.html"))
+    return HTMLResponse(content=_INDEX_HTML)
