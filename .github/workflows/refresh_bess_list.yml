@@ -31,14 +31,15 @@ jobs:
       - name: Commit if changed
         run: |
           set -e
-          # Only commit if the parsed JSON or raw XLSX changed.
-          # The meta file changes every run (timestamp); ignore it on its own.
-          if git diff --quiet -- app/data/bess_list.json app/data/aemo_gen_info.xlsx; then
-            echo "No change in bess_list.json or aemo_gen_info.xlsx; skipping commit."
+          # Only commit if the parsed JSON changed. The meta file changes every
+          # run (timestamp); committing it alone would churn master without
+          # delivering new data.
+          if git diff --quiet -- app/data/bess_list.json; then
+            echo "No change in bess_list.json; skipping commit."
             exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/data/bess_list.json app/data/aemo_gen_info.xlsx app/data/bess_list_meta.json
+          git add app/data/bess_list.json app/data/bess_list_meta.json
           git commit -m "Refresh BESS list snapshot from AEMO XLSX"
           git push origin master

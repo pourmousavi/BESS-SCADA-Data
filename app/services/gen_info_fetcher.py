@@ -5,10 +5,10 @@ Sources tried in order on every cache miss:
 
   1. live      — direct download from www.aemo.com.au (subject to WAF blocks
                  from datacentre IPs; see _BROWSER_HEADERS).
-  2. mirror    — raw.githubusercontent.com copy committed daily by the
-                 refresh_bess_list workflow.
-  3. snapshot  — the parsed bess_list.json bundled in the repo (also
-                 written by refresh_bess_list).
+  2. snapshot  — the parsed bess_list.json bundled in the repo, refreshed
+                 daily by .github/workflows/refresh_bess_list.yml running
+                 scripts/refresh_bess_list.py from GitHub-hosted runners
+                 (whose egress is not blocked by AEMO's WAF).
 
 The first successful step is cached in memory for 24 hours.  The result
 carries a `source` field and any user-facing `warnings` so the API can
@@ -30,14 +30,6 @@ XLSX_URL = (
     "https://www.aemo.com.au/-/media/files/electricity/nem/planning_and_forecasting"
     "/generation_information/2026/nem-generation-information-jan-2026.xlsx"
     "?rev=1f6bccf827284f9fb6d6f3ae56ed3fe9&sc_lang=en"
-)
-
-# raw.githubusercontent.com copy of the XLSX, refreshed daily by
-# .github/workflows/refresh_bess_list.yml. Used as the second-choice source
-# when the live AEMO fetch fails (e.g. WAF 403 from the HuggingFace egress IP).
-XLSX_MIRROR_URL = (
-    "https://raw.githubusercontent.com/pourmousavi/BESS-SCADA-Data"
-    "/master/app/data/aemo_gen_info.xlsx"
 )
 
 # AEMO's Azure Front Door WAF on www.aemo.com.au returns 403 to requests that
@@ -94,8 +86,8 @@ CACHE_TTL = timedelta(hours=24)
 class BessListResult:
     """Parsed BESS list plus provenance for the API response."""
     states: dict[str, list[dict]]
-    source: str            # "live" | "mirror" | "snapshot"
-    fetched_at: datetime   # for the live/mirror path: now; for snapshot: snapshot timestamp
+    source: str            # "live" | "snapshot"
+    fetched_at: datetime   # for the live path: now; for snapshot: snapshot timestamp
     warnings: list[str] = field(default_factory=list)
 
 
@@ -251,10 +243,14 @@ def _load_snapshot() -> BessListResult:
 
 async def fetch_bess_list() -> BessListResult:
     """
-    Return the BESS list, trying live AEMO → GitHub mirror → bundled snapshot.
+    Return the BESS list, trying live AEMO → bundled snapshot.
 
-    Uses a 24-hour in-memory cache (per source). The result carries provenance
-    so the API can surface a warning when serving non-live data.
+    The snapshot is refreshed daily by the refresh_bess_list workflow from
+    GitHub-hosted runners (whose egress is not blocked by AEMO), so even
+    when the live AEMO fetch fails the fallback is at most ~24 hours old.
+
+    Uses a 24-hour in-memory cache. The result carries provenance so the
+    API can surface a warning when serving non-live data.
     """
     global _cache
 
@@ -268,43 +264,25 @@ async def fetch_bess_list() -> BessListResult:
                          now - cached_at, cached.source)
             return cached
 
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        # 1. Live AEMO
-        try:
-            logger.info("Downloading AEMO XLSX (live): %s", XLSX_URL)
+    # 1. Live AEMO
+    try:
+        logger.info("Downloading AEMO XLSX (live): %s", XLSX_URL)
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
             states = await _download_and_parse(XLSX_URL, client)
-            result = BessListResult(states=states, source="live", fetched_at=now)
-            _cache = (result, now)
-            return result
-        except Exception as exc:
-            logger.warning("Live AEMO XLSX fetch failed: %s", exc)
+        result = BessListResult(states=states, source="live", fetched_at=now)
+        _cache = (result, now)
+        return result
+    except Exception as exc:
+        logger.warning("Live AEMO XLSX fetch failed: %s", exc)
 
-        # 2. GitHub raw mirror (refreshed daily by CI)
-        try:
-            logger.info("Downloading AEMO XLSX (mirror): %s", XLSX_MIRROR_URL)
-            states = await _download_and_parse(XLSX_MIRROR_URL, client)
-            result = BessListResult(
-                states=states,
-                source="mirror",
-                fetched_at=now,
-                warnings=[
-                    "Live AEMO BESS list is unavailable; showing a copy mirrored "
-                    "from GitHub (updated daily)."
-                ],
-            )
-            _cache = (result, now)
-            return result
-        except Exception as exc:
-            logger.warning("Mirror XLSX fetch failed: %s", exc)
-
-    # 3. Bundled snapshot — last resort. Always serve something rather than 5xx.
+    # 2. Bundled snapshot — refreshed daily by CI from GH-hosted runners.
     try:
         snapshot = _load_snapshot()
         age = now - snapshot.fetched_at
         days = max(age.days, 0)
         snapshot.warnings = [
-            f"Live AEMO BESS list and mirror are both unavailable; "
-            f"showing bundled snapshot from {snapshot.fetched_at:%Y-%m-%d} "
+            f"Live AEMO BESS list is unavailable; showing the daily snapshot "
+            f"committed on {snapshot.fetched_at:%Y-%m-%d} "
             f"({days} day{'s' if days != 1 else ''} old)."
         ]
         _cache = (snapshot, now)

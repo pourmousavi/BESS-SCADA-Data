@@ -3,14 +3,16 @@
 Refresh the bundled BESS list snapshot.
 
 Downloads the AEMO Generation Information XLSX, parses it into the same
-shape served by /api/bess, and writes two files into app/data/:
+shape served by /api/bess, and writes app/data/bess_list.json. This file is
+the runtime fallback used by gen_info_fetcher.py when the live AEMO fetch
+is blocked (e.g. WAF 403 from the HuggingFace egress IP).
 
-  bess_list.json      — parsed snapshot used as runtime fallback when the
-                        live AEMO fetch is blocked (e.g. WAF 403 from the
-                        HuggingFace egress IP).
-  aemo_gen_info.xlsx  — the raw XLSX bytes, so gen_info_fetcher.py can also
-                        fall back to fetching it from raw.githubusercontent.com
-                        and parse a fresher copy at runtime.
+A small bess_list_meta.json sibling records when the snapshot was fetched
+so the frontend banner can display its age.
+
+The raw XLSX itself is intentionally NOT committed: HuggingFace Spaces
+rejects binary files in non-Xet storage, and the parsed JSON snapshot is a
+strictly equivalent fallback (same parser, same source).
 
 Run from the repo root:
     python scripts/refresh_bess_list.py
@@ -34,7 +36,6 @@ from app.services.gen_info_fetcher import XLSX_URL, _BROWSER_HEADERS, _parse_xls
 
 DATA_DIR = REPO_ROOT / "app" / "data"
 JSON_OUT = DATA_DIR / "bess_list.json"
-XLSX_OUT = DATA_DIR / "aemo_gen_info.xlsx"
 META_OUT = DATA_DIR / "bess_list_meta.json"
 
 
@@ -54,7 +55,6 @@ def main() -> int:
         return 1
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    XLSX_OUT.write_bytes(xlsx_bytes)
     JSON_OUT.write_text(json.dumps(parsed, indent=2, sort_keys=True) + "\n")
     META_OUT.write_text(json.dumps({
         "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -64,7 +64,6 @@ def main() -> int:
     }, indent=2) + "\n")
 
     print(f"Wrote {JSON_OUT.relative_to(REPO_ROOT)}")
-    print(f"Wrote {XLSX_OUT.relative_to(REPO_ROOT)}")
     print(f"Wrote {META_OUT.relative_to(REPO_ROOT)}")
     return 0
 
